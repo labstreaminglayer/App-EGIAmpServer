@@ -1,0 +1,45 @@
+language: cpp
+dist: xenial
+compiler: clang
+env:
+  LSLDIST_URL="https://dl.bintray.com/labstreaminglayer/LSL/"
+  UBUNTU_DIST="xenial"
+  LSL_VERSION="1.1.2"
+  - CMakeArgs=""
+script:
+- mkdir -p build/install
+- cd build
+- cmake --version
+- cmake -DLSL_INSTALL_ROOT=${LSL_INSTALL_ROOT} $CMakeArgs ../
+- cmake --build . --config Release --target install
+- if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then for app in *.app; do ${CMAKE_PREFIX_PATH}/bin/macdeployqt ${app} -dmg; done; fi
+- if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cpack; fi
+- cd ..
+matrix:
+  include:
+    - os: linux
+      addons:
+        apt:
+          packages:
+            - qt5-default
+            - libboost-system-dev
+      before_script:
+        - travis_retry wget --quiet ${LSLDIST_URL}/lsl-liblsl{,-dev}_${LSL_VERSION}-${UBUNTU_DIST}_amd64.deb
+        - for deb in *.deb; do dpkg -x ${deb} LSL; done
+        - export LSL_INSTALL_ROOT=LSL/usr
+        - export CMakeArgs="-DLSL_UNIXFOLDERS=1 ${CMakeArgs}"
+    - os: osx
+      before_install:
+      - brew install qt
+      - export CMAKE_PREFIX_PATH=/usr/local/opt/qt/
+      before_script:
+      - travis_retry wget --quiet ${LSLDIST_URL}/LSL-${LSL_VERSION}-Darwin-liblsl{,-dev}.tar.bz2
+      - mkdir LSL; for file in *.tar.bz2; do tar -xf ${file} -C LSL; done
+      - export LSL_INSTALL_ROOT=LSL
+deploy:
+  skip_cleanup: true
+  provider: bintray
+  user: tstenner
+  key:
+    secure: "ew+8P/Epqf+6OMuqvxfD3T9FeAG43HV53ABt5M6ljeE4FjPgjrIn+zUfLmLtZSSq8iQuhKu/AkLrSnt8/e+G9IKGR5aPk4Zmvk4ndrdQz0hp9RLtGJsJG9Z4q/g7p0Rs18f1IS0AZYSC1yNS2MSa6dKM+n8FAAyBVMmIcr16EdTsy3vvr++KxsFXkNB8nnJTl8MTcQWJ17L+M/11HVtmscbcuEqpRDHUw3lUM82kuwJRsdpg6nxh5ameVQylNgQhNQomEO8Qudue1Dvf+vmLWUuM9YgjsNbEnTQWPLdS5m6fYU02v7pYprrI7N51sAhEjpgD2A763qePirEDgzQK1sZCUMW3Rark6i78fqjxSzSKCW2BZl+/4hty78nBpMhnp+hEHWPFI/syCh01w03EeEU96TH87ZqNObB4QLTndMzZiYAMZGU68GIus4+3cn3hmzEOXQzoPR0Lg9giW5JZQ5h80U+74IJ62WpJuHw7nVSoSvrF3Lg2lX/uTUejfTxc/JvNaTE7BpJYEqtl3RLxk1Aslmyn8NUzAcOG23GBBikuC7nbIZS9wwWMy1ZUNoeDaovuXfzQvw/ObcyPS4WkfY26qfOF8j2IUZmIgpVcKSOV/kCyBYD4IWTS1h8/4nOgMZfpBTdC3g8OtdlQXsMhYYwkdz7hoBSum5Dop5JQLK0="
+  file: .bintray.json

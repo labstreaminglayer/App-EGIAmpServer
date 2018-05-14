@@ -44,6 +44,8 @@ target_link_libraries(${target}
 	Threads::Threads
 )
 
+target_compile_features(${target} PRIVATE cxx_auto_type)
+
 
 # Deployment
 installLSLApp(${target})
