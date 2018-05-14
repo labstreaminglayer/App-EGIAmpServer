@@ -23,31 +23,27 @@ set(META_PROJECT_DESCRIPTION "Stream from EGI devices via Lab Streaming Layer")
 # THIRD PARTY LIBRARIES #
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
 find_package(Boost COMPONENTS system REQUIRED)
+find_package(Threads REQUIRED)
 
 # Target name
 set(target EGIAmpServer)
 
-# Sources
-set(sources
+# Add executable target
+add_executable(${target} MACOSX_BUNDLE WIN32
 	main.cpp
 	EGIAmpWindow.cpp
 	EGIAmpWindow.h
 	EGIAmpWindow.ui
 )
 
-# Add executable target
-add_executable(${target} MACOSX_BUNDLE WIN32 ${sources})
-
 target_link_libraries(${target}
 	PRIVATE
 	Qt5::Widgets
 	LSL::lsl
 	Boost::system
+	Threads::Threads
 )
 
-if(UNIX)
-	target_link_libraries(${target} PRIVATE pthread) # for std::thread
-endif()
 
 # Deployment
 installLSLApp(${target})
