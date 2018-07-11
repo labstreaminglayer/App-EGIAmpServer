@@ -140,11 +140,11 @@ void EGIAmpWindow::link_ampserver() {
 		try {
 			// create the connections
 			commandStream_.exceptions(std::ios::eofbit | std::ios::failbit | std::ios::badbit);
-			commandStream_.expires_from_now(boost::posix_time::seconds(2));
+			commandStream_.expires_from_now(std::chrono::seconds(2));
 			commandStream_.connect(ip::tcp::endpoint(ip::address::from_string(address),commandPort));
 
 			commandStream_.rdbuf()->set_option(ip::tcp::no_delay(true));
-			commandStream_.expires_from_now(boost::posix_time::hours(24*365));
+			commandStream_.expires_from_now(std::chrono::hours(24*365));
 			notificationStream_.connect(ip::tcp::endpoint(ip::address::from_string(address),notificationPort));
 			notificationStream_.rdbuf()->set_option(ip::tcp::no_delay(true));
 			dataStream_.connect(ip::tcp::endpoint(ip::address::from_string(address), dataPort));

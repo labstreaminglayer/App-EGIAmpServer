@@ -5,6 +5,8 @@
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QMessageBox>
+#define BOOST_ASIO_DISABLE_BOOST_DATE_TIME
+#define BOOST_REGEX_NO_LIB
 #include <boost/asio.hpp>
 #include <string>
 #include <vector>
@@ -13,6 +15,7 @@
 
 // LSL API
 #include <lsl_cpp.h>
+
 
 namespace ip = boost::asio::ip;
 typedef ip::tcp::iostream socket_stream;
