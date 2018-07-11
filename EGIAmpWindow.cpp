@@ -4,6 +4,7 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include <chrono>
 #include <boost/endian/conversion.hpp>
+#include <QDebug>
 
 /*template<typename From, typename To> To ntohl(char* val) {
 	boost::endian::big_to_native_inplace(*static_cast<From*>(val));
@@ -150,6 +151,7 @@ void EGIAmpWindow::link_ampserver() {
 			dataStream_.rdbuf()->set_option(ip::tcp::no_delay(true));
 
 			// turn on the amp (note: maybe this should actually address the desired amp to work as intended)
+			qInfo() << "Trying to turn on the amplifier";
 			commandStream_ << "(sendCommand cmd_SetPower 0 0 1)\n" << std::flush;
 			commandStream_.getline(response,sizeof(response));
 
@@ -157,6 +159,7 @@ void EGIAmpWindow::link_ampserver() {
 			std::this_thread::sleep_for(std::chrono::seconds(3));
 
 			// start the desired amplifier
+			qInfo() << "Trying to start acquiring data";
 			commandStream_ << "(sendCommand cmd_Start " << amplifierId << " 0 0)\n" << std::flush;
 			commandStream_.getline(response,sizeof(response));
 			connected = true;
@@ -166,6 +169,7 @@ void EGIAmpWindow::link_ampserver() {
 			commandStream_.getline(response,sizeof(response));
 
 			// send the listen message
+			qInfo() << "Requesting data";
 			dataStream_ << "(sendCommand cmd_ListenToAmp " << amplifierId << " 0 0)\n" << std::flush;
 
 			// wait for another 3 seconds
@@ -209,6 +213,7 @@ void EGIAmpWindow::read_thread(const std::string &address, int amplifierId, int 
 
 		// make a new outlet (we transmit at least every samples_per_chunk samples)
 		lsl::stream_outlet outlet(info,samples_per_chunk);
+		qInfo() << "Created outlet";
 
 		// reserve memory
 		std::vector<float> sample(nChannels);
@@ -250,7 +255,9 @@ void EGIAmpWindow::read_thread(const std::string &address, int amplifierId, int 
 			}
 		}
 	}
-	catch(std::exception &) { }
+	catch(std::exception& e) {
+		qCritical() << QString::fromStdString(e.what());
+	}
 	halt_ampserver(amplifierId);
 }
 
