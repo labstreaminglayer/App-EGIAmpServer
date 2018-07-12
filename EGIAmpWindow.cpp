@@ -139,14 +139,17 @@ void EGIAmpWindow::link_ampserver() {
 		char response[4096];
 		try {
 			// create the connections
+			qInfo() << "Connecting the commandStream";
 			commandStream_.exceptions(std::ios::eofbit | std::ios::failbit | std::ios::badbit);
 			commandStream_.expires_from_now(std::chrono::seconds(2));
 			commandStream_.connect(ip::tcp::endpoint(ip::address::from_string(address),commandPort));
 
 			commandStream_.rdbuf()->set_option(ip::tcp::no_delay(true));
 			commandStream_.expires_from_now(std::chrono::hours(24*365));
+			qInfo() << "Connecting the notificationStream";
 			notificationStream_.connect(ip::tcp::endpoint(ip::address::from_string(address),notificationPort));
 			notificationStream_.rdbuf()->set_option(ip::tcp::no_delay(true));
+			qInfo() << "Connecting the dataStream";
 			dataStream_.connect(ip::tcp::endpoint(ip::address::from_string(address), dataPort));
 			dataStream_.rdbuf()->set_option(ip::tcp::no_delay(true));
 
@@ -241,6 +244,7 @@ void EGIAmpWindow::read_thread(const std::string &address, int amplifierId, int 
 				bytes = lengthA ? lengthA : lengthB;
 
 			// read and transmit the chunk sample-by-sample
+			qDebug() << "Waiting for " << bytes << " bytes";
 			int nSamples = bytes / (sample_header_bytes + nChannels * sizeof(float));
 			for (int s = 0; s < nSamples && dataStream_.good(); s++) {
 				// skip the sample header

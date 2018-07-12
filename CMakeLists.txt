@@ -27,7 +27,7 @@ find_package(Boost COMPONENTS system REQUIRED)
 find_package(Threads REQUIRED)
 
 # Add executable target
-add_executable(${PROJECT_NAME} MACOSX_BUNDLE WIN32
+add_executable(${PROJECT_NAME} MACOSX_BUNDLE
 	main.cpp
 	EGIAmpWindow.cpp
 	EGIAmpWindow.h
