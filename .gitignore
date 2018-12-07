@@ -1,2 +1,4 @@
-/build
+ui_*.h
+/build*/
 /CMakeLists.txt.user
+/CMakeLists.json

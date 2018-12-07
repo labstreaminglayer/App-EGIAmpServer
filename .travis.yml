@@ -1,11 +1,31 @@
 language: cpp
-dist: trusty
+dist: xenial
 compiler: clang
 env:
-  LSLDIST_URL="https://dl.bintray.com/labstreaminglayer/LSL"
-  UBUNTU_DIST="trusty"
-  LSL_VERSION="1.12.0"
+  LSLDIST_URL="https://github.com/sccn/liblsl/releases/download/"
+  UBUNTU_DIST="xenial"
+  LSL_VERSION="1.13.0-b3"
   - CMakeArgs=""
+matrix:
+  include:
+    - os: linux
+      addons:
+        apt:
+          packages:
+            - qt5-default
+      before_script:
+        - travis_retry wget ${LSLDIST_URL}/liblsl-${LSL_VERSION}-Linux64-${UBUNTU_DIST}.deb
+        - dpkg -x *.deb LSL
+        - export LSL_INSTALL_ROOT=LSL/usr
+        - export CMakeArgs="-DLSL_UNIXFOLDERS=1 ${CMakeArgs}"
+    - os: osx
+      before_install:
+      - brew install qt
+      - export CMAKE_PREFIX_PATH=/usr/local/opt/qt/
+      before_script:
+      - travis_retry wget ${LSLDIST_URL}/${LSL_VERSION}/liblsl-${LSL_VERSION}-OSX64.tar.bz2
+      - mkdir LSL; tar -xf *.tar.bz2 -C LSL
+      - export LSL_INSTALL_ROOT=LSL
 script:
 - mkdir -p build/install
 - cd build
@@ -15,20 +35,3 @@ script:
 - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then for app in *.app; do ${CMAKE_PREFIX_PATH}/bin/macdeployqt ${app} -dmg; mv "${app%.app}.dmg" "${app%.app}-${LSL_VERSION}-OSX64.dmg}"; done; fi
 - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cpack; fi
 - cd ..
-matrix:
-  include:
-    - os: osx
-      before_install:
-      - brew install qt
-      - export CMAKE_PREFIX_PATH=/usr/local/opt/qt/
-      before_script:
-      - travis_retry wget ${LSLDIST_URL}/liblsl-${LSL_VERSION}-OSX64.tar.bz2
-      - mkdir LSL; tar -xf *.tar.bz2 -C LSL
-      - export LSL_INSTALL_ROOT=LSL
-deploy:
-  skip_cleanup: true
-  provider: bintray
-  user: tstenner
-  key:
-    secure: "XHjExQrOKriFqscGnJGRwEHkdlJEmtAcNgf0CxESGdmhD6nO5nh+u3jr/5GqrSDtekjxdgD2rL4c63Oq46BRB2CDs8yWT5lT042hSI9T8pxMZlZkLFwLltX1xS/wPdkolpuqvKhf8GIX4cczETOQUoEQB7l3YDBoKLRZYwRxmbehrlECPRSvTn70brnuxdO1USdJLMw7MfYr14C4+Qs1KF+6wBSgqKAmDHZDVpFg0Js6Kkc+5RcOzQR8OkwMpDdxBx3avDDwu9Q1zwQ+LUVCKoAYDy0idKgVkQ79IPe8LVQQ0QrIkP/WtvLmheXLOpC/7eLani+FY1hdzroQcgC0lYzpt79vV12GmKHephzcxzPZWZAvmqjx+pF0XyIzi4xEGos8BeNGrWL6Jzkx7m0C++mTEhA8VotliSIQ9R0GWAdA82JLBOyPCwfcafrypAmwNNLYuwLi9NbjwHAxlL71B8jU9f543Hl5fSyLtUERIFMgjds+sGPAzFqMO/34uJTM8zurJzVy624ITqqcfL3kc6hB7zj/c9unLSkRUOztGBu1ziVVGTHijPKAB9DxyqFlYPZMz4z5httDtvuSXq6ZhfJwSdUrKkxQvGofCDNxam7NgYaNv0Cd5dpBKBxMpVekc83hJenbSsQ1sbzxPd9CJTBwVoKvUmESpHxfV3oDcrI="
-  file: .bintray.json
