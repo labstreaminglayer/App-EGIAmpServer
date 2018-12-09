@@ -11,7 +11,8 @@ set(META_PROJECT_DESCRIPTION "Stream from Philips Neuro devices via Lab Streamin
 
 # THIRD PARTY LIBRARIES #
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
-find_package(Boost 1.66.0 COMPONENTS system REQUIRED)
+cmake_policy(SET CMP0074 NEW)  # <- Required to avoid conflict between BOOST_ROOT and Boost_ROOT
+find_package(Boost COMPONENTS system REQUIRED)
 find_package(Threads REQUIRED)
 
 # Add executable target
