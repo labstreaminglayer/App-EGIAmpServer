@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 
 project(EGIAmpServer
 	LANGUAGES CXX
-	VERSION 2.0.0)
+	VERSION 1.13.0)
 
 include(Findliblsl.cmake)
 
