@@ -119,31 +119,31 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& config_file)
 	load_config(config_file);
 
 	// make GUI connections
-	QObject::connect(ui->actionQuit, &QAction::triggered, this, &EGIAmpWindow::close);
-	QObject::connect(ui->linkButton, &QPushButton::clicked, this, &EGIAmpWindow::link_ampserver);
-	QObject::connect(ui->actionLoad_Configuration, &QAction::triggered, this,
+	connect(ui->actionQuit, &QAction::triggered, this, &EGIAmpWindow::close);
+	connect(ui->linkButton, &QPushButton::clicked, this, &EGIAmpWindow::link_ampserver);
+	connect(ui->actionLoad_Configuration, &QAction::triggered, this,
 	                 &EGIAmpWindow::load_config_dialog);
-	QObject::connect(ui->actionSave_Configuration, &QAction::triggered, this,
+	connect(ui->actionSave_Configuration, &QAction::triggered, this,
 	                 &EGIAmpWindow::save_config_dialog);
-	QObject::connect(this, &EGIAmpWindow::appendStatusMessage, ui->statusBox,
+	connect(this, &EGIAmpWindow::appendStatusMessage, ui->statusBox,
 	                 &QPlainTextEdit::appendPlainText);
-	QObject::connect(this, &EGIAmpWindow::enableSampleRateSelection, ui->sampleRateComboBox,
+	connect(this, &EGIAmpWindow::enableSampleRateSelection, ui->sampleRateComboBox,
 	                 &QComboBox::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::error, this, &EGIAmpWindow::displayError);
-	QObject::connect(this, &EGIAmpWindow::enableUI, this, &EGIAmpWindow::unlockUI);
-	QObject::connect(this, &EGIAmpWindow::disableUI, this, &EGIAmpWindow::lockUI);
-	QObject::connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->sampleRateComboBox,
+	connect(this, &EGIAmpWindow::error, this, &EGIAmpWindow::displayError);
+	connect(this, &EGIAmpWindow::enableUI, this, &EGIAmpWindow::unlockUI);
+	connect(this, &EGIAmpWindow::disableUI, this, &EGIAmpWindow::lockUI);
+	connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->sampleRateComboBox,
 	                 &QComboBox::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->amplifierId,
+	connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->amplifierId,
 	                 &QSpinBox::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->serverAddress,
+	connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->serverAddress,
 	                 &QLineEdit::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->commandPort,
+	connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->commandPort,
 	                 &QSpinBox::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->notificationPort,
+	connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->notificationPort,
 	                 &QSpinBox::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->dataPort, &QSpinBox::setEnabled);
-	QObject::connect(this, &EGIAmpWindow::setLinkButtonText, this->ui->linkButton,
+	connect(this, &EGIAmpWindow::fieldsEnabled, this->ui->dataPort, &QSpinBox::setEnabled);
+	connect(this, &EGIAmpWindow::setLinkButtonText, this->ui->linkButton,
 	                 &QPushButton::setText);
 }
 
@@ -161,7 +161,7 @@ void EGIAmpWindow::save_config_dialog() {
 
 void EGIAmpWindow::closeEvent(QCloseEvent *ev) {
 	if (reader_thread_)
-			ev->ignore();
+		ev->ignore();
 }
 
 void EGIAmpWindow::load_config(const std::string &filename) {

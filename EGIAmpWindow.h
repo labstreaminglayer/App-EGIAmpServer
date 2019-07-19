@@ -1,6 +1,6 @@
 #ifndef EGIAmpWindow_H
 #define EGIAmpWindow_H
-
+#include "ui_EGIAmpWindow.h"
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QMainWindow>

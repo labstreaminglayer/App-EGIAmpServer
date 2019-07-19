@@ -9,9 +9,7 @@ environment:
   matrix:
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
       QTCOMPILER: msvc2017_64
-      QTVER: 5.11
-    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu1604
-      DEPLOYNAME: Linux64-xenial
+      QTVER: 5.12
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu1804
       DEPLOYNAME: Linux64-bionic
 install:
@@ -29,7 +27,7 @@ build_script:
 - cmd: call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat"
 - mkdir build
 - cd build
-- cmd: cmake -G Ninja -DQt5_DIR=C:/Qt/%QTVER%/%QTCOMPILER%/lib/cmake/Qt5 -DBOOST_ROOT=C:/Libraries/boost_1_67_0 -DLSL_INSTALL_ROOT=LSL/ %CMakeArgs% ../
+- cmd: cmake -G Ninja -DQt5_DIR=C:/Qt/%QTVER%/%QTCOMPILER%/lib/cmake/Qt5 -DBOOST_ROOT=C:/Libraries/boost_1_69_0 -DLSL_INSTALL_ROOT=LSL/ %CMakeArgs% ../
 - sh: cmake -DLSL_INSTALL_ROOT=LSL/usr -DLSL_UNIXFOLDERS=1 ${CMakeArgs} ..
 - cmake --build . --config Release --target install
 - cpack
