@@ -389,7 +389,7 @@ bool EGIAmpWindow::initAmplifier(bool verbose) {
 
 	// Set the sample rate
 	std::string setSampleRateResponse = this->sendCommand(
-	    "cmd_SetDecimatedRate", std::to_string(amplifierId), "0", sampleRate.toStdString());
+	    "cmd_SetNativeRate", std::to_string(amplifierId), "0", sampleRate.toStdString());
 
 	// turn on the amp
 	std::string setPowerOnResponse =
@@ -409,7 +409,7 @@ bool EGIAmpWindow::initAmplifier(bool verbose) {
 		emit this->appendStatusMessage("Stop: " + QString::fromStdString(stopResponse.c_str()));
 		emit this->appendStatusMessage("SetPower: " +
 		                               QString::fromStdString(setPowerOffResponse.c_str()));
-		emit this->appendStatusMessage("SetDecimatedRate: " +
+		emit this->appendStatusMessage("SetNativeRate: " +
 		                               QString::fromStdString(setSampleRateResponse.c_str()));
 		emit this->appendStatusMessage("SetPower: " +
 		                               QString::fromStdString(setPowerOnResponse.c_str()));
