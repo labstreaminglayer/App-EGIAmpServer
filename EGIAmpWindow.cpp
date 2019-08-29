@@ -603,7 +603,7 @@ void EGIAmpWindow::read_packet_format_2(int numChannels, int* packetsReceived) {
 
 				// create streaminfo
 				std::string streamname = "EGI NetAmp " + std::to_string(header.ampID);
-				lsl::stream_info info(streamname, "EEG", nChannels,
+				lsl::stream_info info(streamname, "EEG", nChannels + 1, // +1 for DIN
 				                      this->ui->sampleRateComboBox->currentText().toInt(),
 				                      lsl::cf_float32,
 				                      streamname + "at_" + ui->serverAddress->text().toStdString());
@@ -671,6 +671,7 @@ void EGIAmpWindow::read_packet_format_2(int numChannels, int* packetsReceived) {
 				samples.push_back(static_cast<float>(packet.eegData[channelNumber]) *
 				                  this->scalingFactor_);
 			}
+			samples.push_back(static_cast<float>(packet.digitalInputs)) // DIN channel
 			// push it into LSL
 			outlet->push_sample(samples);
 		}
