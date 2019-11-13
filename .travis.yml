@@ -4,15 +4,15 @@ compiler: clang
 env:
   LSLDIST_URL="https://github.com/sccn/liblsl/releases/download"
   UBUNTU_DIST="xenial"
-  LSL_VERSION="1.13.0-b9"
-  OSXVER=MacOS10.13
+  LSL_VERSION="1.13.0-b12"
+  OSXVER=OSX64
   - CMakeArgs=""
 matrix:
   include:
   - os: osx
     osx_image: xcode10.1
     before_script:
-    - travis_retry wget ${LSLDIST_URL}/${LSL_VERSION}/liblsl-${LSL_VERSION}-${OSXVER}.tar.bz2
+    - travis_retry wget ${LSLDIST_URL}/${LSL_VERSION}/liblsl-1.13.0-OSX64.tar.bz2
     - mkdir LSL; tar -xf *.tar.bz2 -C LSL
     - export LSL_INSTALL_ROOT=LSL
     - brew install qt
