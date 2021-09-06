@@ -671,7 +671,7 @@ void EGIAmpWindow::read_packet_format_2(int numChannels, int* packetsReceived) {
 				samples.push_back(static_cast<float>(packet.eegData[channelNumber]) *
 				                  this->scalingFactor_);
 			}
-			samples.push_back(static_cast<float>(packet.digitalInputs)) // DIN channel
+			samples.push_back(static_cast<float>(packet.digitalInputs)); // DIN channel
 			// push it into LSL
 			outlet->push_sample(samples);
 		}
