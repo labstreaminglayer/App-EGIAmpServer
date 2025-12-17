@@ -1,0 +1,94 @@
+name: Build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  release:
+    types: [published]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: Linux
+          - os: macos-14
+            name: macOS-arm64
+          - os: macos-13
+            name: macOS-x64
+          - os: windows-2022
+            name: Windows
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-base-dev libgl1-mesa-dev
+
+      - name: Install Qt (macOS)
+        if: runner.os == 'macOS'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.*'
+          cache: true
+
+      - name: Install Qt (Windows)
+        if: runner.os == 'Windows'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.*'
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Configure CMake
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          -DLSL_FETCH_IF_MISSING=ON
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Test CLI
+        if: runner.os != 'Windows'
+        run: ./build/cli/EGIAmpServerCLI --help
+
+      - name: Test CLI (Windows)
+        if: runner.os == 'Windows'
+        run: .\build\cli\Release\EGIAmpServerCLI.exe --help
+
+      - name: Package
+        run: cpack -C ${{ env.BUILD_TYPE }}
+        working-directory: build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: EGIAmpServer-${{ matrix.name }}
+          path: |
+            build/*.zip
+            build/*.tar.gz
+            build/*.deb
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/*.zip
+            build/*.tar.gz
+            build/*.deb

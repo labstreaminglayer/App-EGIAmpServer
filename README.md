@@ -1,8 +1,8 @@
-# Usage
+# LSL EGI AmpServer Application
+
+## Usage
 
 This program should work with any amplifier that works with the AmpServer produced by EGI (http://www.egi.com/).
-Note: This program is currently untested since we don't have physical access to a NetAmp. If you experience issues while trying to use it, please let us know so we can take a look at the problem and debug it if necessary.
-
 
   * Make sure that your AmpServer is running and can correctly record from its connected amplifier(s). To connect to the Amp Server you need to purchase the Amp Server Pro SDK, see: [ftp://ftp.egi.com/pub/documentation/placards/AS_guide_8409503-50_20100421.pdf](ftp://ftp.egi.com/pub/documentation/placards/AS_guide_8409503-50_20100421.pdf), otherwise the LSL application will not work.
 
