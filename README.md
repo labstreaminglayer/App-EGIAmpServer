@@ -30,3 +30,17 @@ Importantly, the program can be started with a command-line argument of the form
 The recommended procedure to use the app in production experiments is to make a shortcut on
 the experimenter's desktop which points to a previously saved configuration customized to the
 study being recorded to minimize the chance of operator error.
+
+# Mock Server for development
+
+To use the mock server for development:
+
+**Terminal 1: Start mock server**
+
+> python3 mock/mock_ampserver.py
+
+**Terminal 2: Run CLI or GUI against localhost**
+> ./cli/EGIAmpServerCLI --address 127.0.0.1
+> # or update ampserver_config.cfg to use 127.0.0.1 and run GUI
+
+The mock server generates synthetic sine waves (10-50 Hz) with noise for the EEG data, so you can also verify the LSL stream in downstream applications.
