@@ -26,7 +26,7 @@ void printUsage(const char* programName) {
     std::cerr << "Usage: " << programName << " [options]\n"
               << "Options:\n"
               << "  --config <file>    Load configuration from file\n"
-              << "  --address <addr>   AmpServer IP address (default: 172.16.2.249)\n"
+              << "  --address <addr>   AmpServer IP address (default: 10.10.10.51)\n"
               << "  --cmd-port <port>  Command port (default: 9877)\n"
               << "  --data-port <port> Data port (default: 9879)\n"
               << "  --amp-id <id>      Amplifier ID (default: 0)\n"
