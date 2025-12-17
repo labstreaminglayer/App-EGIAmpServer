@@ -15,6 +15,10 @@ struct AmpServerConfig {
     int amplifierId = 0;
     int sampleRate = 1000;
 
+    // If true, just listen to an already-running amp without initializing it.
+    // This allows multiple clients to connect without disrupting each other.
+    bool listenOnly = false;
+
     static AmpServerConfig loadFromFile(const std::string& filename);
     void saveToFile(const std::string& filename) const;
 };

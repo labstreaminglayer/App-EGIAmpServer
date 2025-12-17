@@ -145,8 +145,11 @@ void EGIAmpClient::haltAmplifier() {
     try {
         connection_.sendDatastreamCommand("cmd_StopListeningToAmp",
                                           config_.amplifierId, 0, "0");
-        connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
-        connection_.sendCommand("cmd_SetPower", config_.amplifierId, 0, "0");
+        if (!config_.listenOnly) {
+            // Only stop/power off if we initialized the amp
+            connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
+            connection_.sendCommand("cmd_SetPower", config_.amplifierId, 0, "0");
+        }
         emitStatus("Stream Stopped.\n");
     } catch (...) {}
     stopFlag_ = false;
@@ -164,7 +167,11 @@ bool EGIAmpClient::startStreaming() {
         return false;
     }
 
-    initAmplifier();
+    if (!config_.listenOnly) {
+        initAmplifier();
+    } else {
+        emitStatus("Listen-only mode: skipping amplifier initialization\n");
+    }
 
     // Send listen command
     connection_.sendDatastreamCommand("cmd_ListenToAmp",

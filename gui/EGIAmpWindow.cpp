@@ -1,6 +1,7 @@
 #include "EGIAmpWindow.h"
 #include "ui_EGIAmpWindow.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -45,6 +46,7 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->commandPort, &QSpinBox::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->notificationPort, &QSpinBox::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->dataPort, &QSpinBox::setEnabled);
+    connect(this, &EGIAmpWindow::fieldsEnabled, ui->listenOnlyCheckBox, &QCheckBox::setEnabled);
     connect(this, &EGIAmpWindow::setLinkButtonText, ui->linkButton, &QPushButton::setText);
 
     // Set up client callbacks
@@ -96,6 +98,7 @@ void EGIAmpWindow::loadConfig(const std::string& filename) {
         ui->dataPort->setValue(config.dataPort);
         ui->amplifierId->setValue(config.amplifierId);
         ui->sampleRateComboBox->setCurrentText(QString::number(config.sampleRate));
+        ui->listenOnlyCheckBox->setChecked(config.listenOnly);
     } catch (const egiamp::ConfigError& e) {
         QMessageBox::information(this, "Error",
             QString("Cannot read config file: %1").arg(e.what()), QMessageBox::Ok);
@@ -120,6 +123,7 @@ egiamp::AmpServerConfig EGIAmpWindow::getConfigFromUI() const {
     config.dataPort = static_cast<uint16_t>(ui->dataPort->value());
     config.amplifierId = ui->amplifierId->value();
     config.sampleRate = ui->sampleRateComboBox->currentText().toInt();
+    config.listenOnly = ui->listenOnlyCheckBox->isChecked();
     return config;
 }
 
