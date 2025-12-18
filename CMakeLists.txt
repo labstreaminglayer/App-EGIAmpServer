@@ -146,16 +146,16 @@ endif()
 # =============================================================================
 
 # Core library (Qt-independent)
-add_subdirectory(core)
+add_subdirectory(src/core)
 
 # CLI application
 if(EGIAMP_BUILD_CLI)
-    add_subdirectory(cli)
+    add_subdirectory(src/cli)
 endif()
 
 # GUI application
 if(EGIAMP_BUILD_GUI)
-    add_subdirectory(gui)
+    add_subdirectory(src/gui)
 endif()
 
 # =============================================================================
