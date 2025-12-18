@@ -19,6 +19,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # =============================================================================
 option(EGIAMP_BUILD_GUI "Build the GUI application" ON)
 option(EGIAMP_BUILD_CLI "Build the CLI application" ON)
+option(EGIAMP_BUILD_MOCK "Build the mock EGI Amp device for testing" ON)
 
 # LSL dependency options
 set(LSL_SOURCE_DIR "" CACHE PATH "Path to liblsl source for parallel development (highest priority)")
@@ -156,6 +157,11 @@ endif()
 # GUI application
 if(EGIAMP_BUILD_GUI)
     add_subdirectory(src/gui)
+endif()
+
+# Mock EGI Amp device for testing
+if(EGIAMP_BUILD_MOCK)
+    add_subdirectory(mock)
 endif()
 
 # =============================================================================

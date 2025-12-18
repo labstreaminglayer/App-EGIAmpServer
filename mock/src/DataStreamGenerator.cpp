@@ -1,0 +1,204 @@
+#include "DataStreamGenerator.h"
+#include <chrono>
+#include <cstring>
+#include <iostream>
+
+namespace mock {
+
+DataStreamGenerator::DataStreamGenerator(asio::io_context& io_context, uint16_t port,
+                                         std::shared_ptr<MockAmplifier> amplifier)
+    : io_context_(io_context)
+    , acceptor_(io_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port))
+    , amplifier_(amplifier)
+{
+}
+
+DataStreamGenerator::~DataStreamGenerator() {
+    stop();
+}
+
+void DataStreamGenerator::start() {
+    running_ = true;
+    acceptConnections();
+
+    // Start streaming thread
+    streamThread_ = std::make_unique<std::thread>(&DataStreamGenerator::streamingThread, this);
+
+    std::cout << "[DataStreamGenerator] Listening on port " << acceptor_.local_endpoint().port() << std::endl;
+}
+
+void DataStreamGenerator::stop() {
+    running_ = false;
+    listening_ = false;
+
+    asio::error_code ec;
+    acceptor_.close(ec);
+
+    if (streamThread_ && streamThread_->joinable()) {
+        streamThread_->join();
+    }
+
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& client : clients_) {
+        client->close(ec);
+    }
+    clients_.clear();
+}
+
+void DataStreamGenerator::acceptConnections() {
+    auto socket = std::make_shared<asio::ip::tcp::socket>(io_context_);
+    acceptor_.async_accept(*socket, [this, socket](const asio::error_code& ec) {
+        if (!ec && running_) {
+            std::cout << "[DataStreamGenerator] Client connected" << std::endl;
+            handleConnection(socket);
+        }
+        if (running_) {
+            acceptConnections();
+        }
+    });
+}
+
+void DataStreamGenerator::handleConnection(std::shared_ptr<asio::ip::tcp::socket> socket) {
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clients_.insert(socket);
+    }
+
+    // Read commands from client (for cmd_ListenToAmp, etc.)
+    readFromClient(socket);
+}
+
+void DataStreamGenerator::readFromClient(std::shared_ptr<asio::ip::tcp::socket> socket) {
+    auto buffer = std::make_shared<asio::streambuf>();
+    asio::async_read_until(*socket, *buffer, '\n',
+        [this, socket, buffer](const asio::error_code& ec, std::size_t bytes_transferred) {
+            if (ec) {
+                removeClient(socket);
+            } else if (running_) {
+                std::istream is(buffer.get());
+                std::string line;
+                std::getline(is, line);
+
+                // Remove trailing carriage return if present
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                std::cout << "[DataStreamGenerator] Received: " << line << std::endl;
+
+                // Parse cmd_ListenToAmp or cmd_StopListeningToAmp
+                if (line.find("cmd_ListenToAmp") != std::string::npos) {
+                    listening_ = true;
+                    // Send success response
+                    std::string response = "(sendCommand_return (status complete))\n";
+                    asio::write(*socket, asio::buffer(response));
+                } else if (line.find("cmd_StopListeningToAmp") != std::string::npos) {
+                    listening_ = false;
+                    std::string response = "(sendCommand_return (status complete))\n";
+                    asio::write(*socket, asio::buffer(response));
+                }
+
+                readFromClient(socket);
+            }
+        });
+}
+
+void DataStreamGenerator::removeClient(std::shared_ptr<asio::ip::tcp::socket> socket) {
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    clients_.erase(socket);
+    asio::error_code ec;
+    socket->close(ec);
+    std::cout << "[DataStreamGenerator] Client disconnected" << std::endl;
+}
+
+void DataStreamGenerator::startListening(int64_t ampId) {
+    listeningAmpId_ = ampId;
+    listening_ = true;
+}
+
+void DataStreamGenerator::stopListening(int64_t ampId) {
+    listening_ = false;
+}
+
+void DataStreamGenerator::streamingThread() {
+    const int samplesPerSecond = 1000;  // Base rate
+    const int samplesPerPacket = 5;     // Send 5 samples per network packet
+    const auto packetInterval = std::chrono::milliseconds(samplesPerPacket);
+
+    while (running_) {
+        if (amplifier_->isStreaming() && listening_) {
+            sendDataToClients();
+        }
+
+        std::this_thread::sleep_for(packetInterval);
+    }
+}
+
+void DataStreamGenerator::sendDataToClients() {
+    std::vector<uint8_t> buffer;
+    generateSyntheticData(buffer);
+
+    if (buffer.empty()) return;
+
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto it = clients_.begin(); it != clients_.end(); ) {
+        auto& socket = *it;
+        asio::error_code ec;
+        asio::write(*socket, asio::buffer(buffer), ec);
+        if (ec) {
+            std::cout << "[DataStreamGenerator] Error sending data: " << ec.message() << std::endl;
+            it = clients_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
+    const int samplesPerPacket = 5;
+    const auto& state = amplifier_->state();
+
+    // Determine packet format
+    if (state.packetFormat == PacketFormat::Format2) {
+        // Packet Format 2
+        size_t dataSize = samplesPerPacket * PACKET_FORMAT2_SIZE;
+        buffer.resize(DATA_HEADER_SIZE + dataSize);
+
+        // Write header (network byte order = big endian)
+        AmpDataPacketHeader header;
+        header.ampID = __builtin_bswap64(state.ampId);
+        header.length = __builtin_bswap64(dataSize);
+        std::memcpy(buffer.data(), &header, sizeof(header));
+
+        // Generate sample packets
+        for (int i = 0; i < samplesPerPacket; ++i) {
+            PacketFormat2_SamplePacket packet;
+            amplifier_->generatePacketFormat2(packet);
+
+            // Copy packet to buffer (little endian, as per spec)
+            std::memcpy(buffer.data() + DATA_HEADER_SIZE + i * PACKET_FORMAT2_SIZE,
+                       &packet, PACKET_FORMAT2_SIZE);
+        }
+    } else {
+        // Packet Format 1
+        size_t dataSize = samplesPerPacket * PACKET_FORMAT1_SIZE;
+        buffer.resize(DATA_HEADER_SIZE + dataSize);
+
+        // Write header
+        AmpDataPacketHeader header;
+        header.ampID = __builtin_bswap64(state.ampId);
+        header.length = __builtin_bswap64(dataSize);
+        std::memcpy(buffer.data(), &header, sizeof(header));
+
+        // Generate sample packets
+        for (int i = 0; i < samplesPerPacket; ++i) {
+            PacketFormat1_SamplePacket packet;
+            amplifier_->generatePacketFormat1(packet);
+
+            std::memcpy(buffer.data() + DATA_HEADER_SIZE + i * PACKET_FORMAT1_SIZE,
+                       &packet, PACKET_FORMAT1_SIZE);
+        }
+    }
+}
+
+} // namespace mock

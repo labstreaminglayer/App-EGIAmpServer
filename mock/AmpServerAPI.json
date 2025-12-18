@@ -1,0 +1,515 @@
+{
+  "meta": {
+    "title": "EGI Amp Server Pro SDK 3.0 API Reference",
+    "version": "3.0",
+    "document_number": "8200031-01",
+    "revision_date": "2024-05"
+  },
+  "network": {
+    "ports": {
+      "command": 9877,
+      "notification": 9878,
+      "data": 9879
+    },
+    "eci_ports": [55513, 55514, 55515, 55516]
+  },
+  "amplifier_types": {
+    "NA300": { "id": 0, "name": "Net Amps 300", "scaling_factor": 0.0244140625 },
+    "NA400": { "id": 1, "name": "Net Amps 400", "scaling_factor": 0.000155220429 },
+    "NA410": { "id": 2, "name": "Net Amps 410", "scaling_factor": 0.00009636188 },
+    "NA500": { "id": 3, "name": "Net Amps 500", "scaling_factor": 1.0 },
+    "GTEN200": { "id": 1, "name": "NA GTEN 200", "scaling_factor": 0.000155220429 }
+  },
+  "net_codes": {
+    "GSN64_2_0": { "code": 0, "name": "GSN 64", "channels": 64 },
+    "GSN128_2_0": { "code": 1, "name": "GSN 128", "channels": 128 },
+    "GSN256_2_0": { "code": 2, "name": "GSN 256", "channels": 256 },
+    "HCGSN32_1_0": { "code": 3, "name": "HGSN 32", "channels": 32 },
+    "HCGSN64_1_0": { "code": 4, "name": "HGSN 64", "channels": 64 },
+    "HCGSN128_1_0": { "code": 5, "name": "HGSN 128", "channels": 128 },
+    "HCGSN256_1_0": { "code": 6, "name": "HGSN 256", "channels": 256 },
+    "MCGSN32_1_0": { "code": 7, "name": "MGSN 32", "channels": 32 },
+    "MCGSN64_1_0": { "code": 8, "name": "MGSN 64", "channels": 64 },
+    "MCGSN128_1_0": { "code": 9, "name": "MGSN 128", "channels": 128 },
+    "MCGSN256_1_0": { "code": 10, "name": "MGSN 256", "channels": 256 },
+    "TestConnector": { "code": 14, "name": "Test Connector", "channels": 256 },
+    "NoNet": { "code": 15, "name": "No Net", "channels": 0 },
+    "Unknown": { "code": 255, "name": "Unknown", "channels": 0 }
+  },
+  "packet_formats": {
+    "format1": {
+      "size": 1152,
+      "fields": {
+        "header": { "offset": 0, "size": 32, "type": "uint32[8]", "description": "DINS at bytes 24/25, net type at byte 26" },
+        "eeg": { "offset": 32, "size": 1024, "type": "float32[256]", "description": "EEG Data" },
+        "pib": { "offset": 1056, "size": 28, "type": "float32[7]", "description": "PIB data" },
+        "unused1": { "offset": 1084, "size": 4, "type": "float32", "description": "N/A" },
+        "ref": { "offset": 1088, "size": 4, "type": "float32", "description": "Reference channel" },
+        "com": { "offset": 1092, "size": 4, "type": "float32", "description": "Common channel" },
+        "unused2": { "offset": 1096, "size": 4, "type": "float32", "description": "N/A" },
+        "padding": { "offset": 1100, "size": 52, "type": "float32[13]", "description": "N/A" }
+      }
+    },
+    "format2": {
+      "size": 1264,
+      "byte_order": "little_endian",
+      "fields": {
+        "digitalInputs": { "offset": 0, "size": 2, "type": "uint16" },
+        "tr": { "offset": 2, "size": 1, "type": "uint8" },
+        "pib1_aux": { "offset": 3, "size": 11, "type": "PIB_AUX" },
+        "pib2_aux": { "offset": 14, "size": 11, "type": "PIB_AUX" },
+        "packetCounter": { "offset": 25, "size": 8, "type": "uint64" },
+        "timeStamp": { "offset": 33, "size": 8, "type": "uint64" },
+        "netCode": { "offset": 41, "size": 1, "type": "uint8" },
+        "reserved": { "offset": 42, "size": 38, "type": "uint8[38]" },
+        "eegData": { "offset": 80, "size": 1024, "type": "int32[256]" },
+        "auxData": { "offset": 1104, "size": 12, "type": "int32[3]" },
+        "refMonitor": { "offset": 1116, "size": 4, "type": "int32" },
+        "comMonitor": { "offset": 1120, "size": 4, "type": "int32" },
+        "driveMonitor": { "offset": 1124, "size": 4, "type": "int32" },
+        "diagnosticsChannel": { "offset": 1128, "size": 4, "type": "int32" },
+        "currentSense": { "offset": 1132, "size": 4, "type": "int32" },
+        "pib1_Data": { "offset": 1136, "size": 64, "type": "int32[16]" },
+        "pib2_Data": { "offset": 1200, "size": 64, "type": "int32[16]" }
+      },
+      "pib_aux_structure": {
+        "digitalInputs": { "offset": 0, "size": 1, "type": "uint8" },
+        "status": { "offset": 1, "size": 1, "type": "uint8" },
+        "batteryLevel": { "offset": 2, "size": 3, "type": "uint8[3]" },
+        "temperature": { "offset": 5, "size": 3, "type": "uint8[3]" },
+        "sp02": { "offset": 8, "size": 1, "type": "uint8" },
+        "heartRate": { "offset": 9, "size": 2, "type": "uint8[2]" }
+      }
+    },
+    "data_header": {
+      "size": 16,
+      "byte_order": "network",
+      "fields": {
+        "ampID": { "offset": 0, "size": 8, "type": "int64" },
+        "length": { "offset": 8, "size": 8, "type": "uint64" }
+      }
+    }
+  },
+  "scaling_factors": {
+    "NA400_EEG": 0.000155220429,
+    "NA410_EEG": 0.00009636188,
+    "Physio16_1_8": -0.00111758708,
+    "Physio16_9_16": 0.00111758708
+  },
+  "sample_rates": {
+    "NA400": {
+      "native": [500, 1000, 2000, 4000, 8000],
+      "decimated": [250, 500, 1000]
+    },
+    "NA410": {
+      "native": [20000],
+      "decimated": []
+    }
+  },
+  "commands": {
+    "amplifier": {
+      "cmd_None": {
+        "description": "Null command, no function",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_Start": {
+        "description": "Begin sending data. Must call cmd_SetPower first",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_Stop": {
+        "description": "Stop sending data",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_TurnAll10KOhms": {
+        "description": "Place/remove 10K resistors between all channel inputs and ground",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=Off, 1=On" }
+      },
+      "cmd_TurnChannel10KOhms": {
+        "description": "Place/remove 10K resistor on specific channel",
+        "args": { "amp_id": "int64", "channel": "0-287", "value": "0=Off, 1=On" }
+      },
+      "cmd_SetCOM10KOhms": {
+        "description": "Place 10K resistor on COM channel input",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_TurnAllDriveSignals": {
+        "description": "Drive all channels with test/calibration signal",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=Off, 1=On" }
+      },
+      "cmd_SetCOMDriveSignal": {
+        "description": "Turn on calibration signal on COM channel",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_TurnChannelDriveSignals": {
+        "description": "Drive specific channel with test/calibration signal",
+        "args": { "amp_id": "int64", "channel": "0-287", "value": "0=Off, 1=On" }
+      },
+      "cmd_SetSubjectGround": {
+        "description": "Turn common channel on/off for impedance measurements",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=Off, 1=On" }
+      },
+      "cmd_SetCurrentSource": {
+        "description": "Switch calibration signal between constant voltage/current",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "int16" }
+      },
+      "cmd_SetCalibrationSignalFreq": {
+        "description": "Set frequency of calibration signal",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "frequency" }
+      },
+      "cmd_SetBufferedReference": {
+        "description": "Enable/disable reference signal",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=On, 1=Off" }
+      },
+      "cmd_SetOscillatorGate": {
+        "description": "Disconnect calibration signal from switches",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "int16" }
+      },
+      "cmd_SetReference10KOhms": {
+        "description": "Place 10K resistor on reference channel input",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "int16" }
+      },
+      "cmd_SetReferenceDriveSignal": {
+        "description": "Turn on calibration signal on reference channel",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "int16" }
+      },
+      "cmd_SetPower": {
+        "description": "Turn amplifier on/off",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=Off, 1=On" }
+      },
+      "cmd_Reset": {
+        "description": "Reset the amplifier",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_SetWaveShape": {
+        "description": "Set calibration signal waveform",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=Sine, 1=Square, 2=Triangle, 3=Sawtooth" }
+      },
+      "cmd_SetDrivenCommon": {
+        "description": "Enable CANCL technology for active noise cancellation",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=Off, 1=On" }
+      },
+      "cmd_SetCalibrationSignalAmplitude": {
+        "description": "Set amplitude of calibration signal (12-bit range)",
+        "args": { "amp_id": "int64", "channel": "default 8", "value": "12-bit range" }
+      },
+      "cmd_SetDigitalOutputData": {
+        "description": "Set bits of 16-bit Digital I/O port",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "bit mask" }
+      },
+      "cmd_SetDigitalInOutDirection": {
+        "description": "Set DIO bits for input/output",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "bit mask" }
+      },
+      "cmd_GetStartTime": {
+        "description": "Get amplifier start time (microseconds since Epoch)",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" },
+        "returns": "start_time"
+      },
+      "cmd_GetCurrentTime": {
+        "description": "Not supported",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_GetCurrentDrift": {
+        "description": "Not supported",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_SetNativeRate": {
+        "description": "Set native sampling rate (NA400: 500,1000,2000,4000,8000; NA410: 20000)",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "rate" }
+      },
+      "cmd_SetDecimatedRate": {
+        "description": "Set decimation rate (NA400: 250, 500, 1000)",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "rate" }
+      },
+      "cmd_setPIBChannelGain": {
+        "description": "Set Physio16/PIB channel gain",
+        "args": { "amp_id": "int64", "channel": "1-32", "value": "NA400: 1,2,3,4,6,8,12; NA300: 2,20,200,2000" }
+      },
+      "cmd_TurnChannelZeroOhms": {
+        "description": "Short channel to ground",
+        "args": { "amp_id": "int64", "channel": "0-287", "value": "0=normal, 1=ground" }
+      },
+      "cmd_TurnAllZeroOhms": {
+        "description": "Short all channels to ground",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "0=normal, 1=ground" }
+      },
+      "cmd_SetPhoticStimSequence": {
+        "description": "Send MFF PhoticStim XML sequence to NA400",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "xml_string" }
+      },
+      "cmd_GetPhysioConnectionStatus": {
+        "description": "Query Physio16 connection status (0=none, 1=port1, 2=port2, 3=both)",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      }
+    },
+    "amplifier_status": {
+      "cmd_GetAmpDetails": {
+        "description": "Get amplifier details",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" },
+        "returns": {
+          "serial_number": "string",
+          "amp_type": "string",
+          "legacy_board": "bool",
+          "packet_format": "int",
+          "system_version": "string",
+          "number_of_channels": "int"
+        }
+      },
+      "cmd_GetAmpStatus": {
+        "description": "Get amplifier status (not implemented)",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      }
+    },
+    "extended": {
+      "cmd_DefaultAcquisitionState": {
+        "description": "Set default acquisition state (turns off calibration components)",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" },
+        "executes": [
+          "cmd_TurnAll10KOhms 0 0 0",
+          "cmd_TurnAllDriveSignals 0 0 0",
+          "cmd_SetSubjectGround 0 0 1",
+          "cmd_SetCurrentSource 0 0 0",
+          "cmd_SetCalibrationSignalFreq 0 0 0",
+          "cmd_SetBufferedReference 0 0 1",
+          "cmd_SetOscillatorGate 0 0 0",
+          "cmd_SetReference10KOhms 0 0 0",
+          "cmd_SetReferenceDriveSignal 0 0 0",
+          "cmd_SetWaveShape 0 0 0",
+          "cmd_SetCalibrationSignalAmplitude 0 0 0",
+          "cmd_SetAnalogOutput 0 7 0",
+          "cmd_SetDrivenCommon 0 0 0"
+        ]
+      },
+      "cmd_DefaultSignalGeneration": {
+        "description": "Set default signal generation state (enables calibration)",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" },
+        "executes": [
+          "cmd_TurnAllDriveSignals 0 0 0",
+          "cmd_SetReferenceDriveSignal 0 0 0",
+          "cmd_TurnAllDriveSignals 0 0 1",
+          "cmd_SetSubjectGround 0 0 0",
+          "cmd_SetCalibrationSignalFreq 0 0 5",
+          "cmd_SetBufferedReference 0 0 0",
+          "cmd_SetOscillatorGate 0 0 1",
+          "cmd_SetCalibrationSignalAmplitude 0 0 50",
+          "cmd_SetAnalogOutput 0 7 50"
+        ]
+      }
+    },
+    "amp_server": {
+      "cmd_NumberOfAmps": {
+        "description": "Get number of amplifiers (active or not)",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" },
+        "returns": "number_of_amps"
+      },
+      "cmd_NumberOfActiveAmps": {
+        "description": "Get number of active amplifiers",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" },
+        "returns": "number_of_amps"
+      },
+      "cmd_ListenToAmp": {
+        "description": "Start listening to data from amplifier on stream port",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_StopListeningToAmp": {
+        "description": "Stop listening to data from amplifier",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_ReceiveNotifications": {
+        "description": "Start receiving notifications from amplifier on notification port",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_StopReceivingNotifications": {
+        "description": "Stop receiving notifications",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_Exit": {
+        "description": "Terminate Amp Server",
+        "args": { "amp_id": "N/A", "channel": "N/A", "value": "N/A" }
+      }
+    },
+    "gten": {
+      "cmd_GTENSetTrain": {
+        "description": "Set complete GTEN Train (waveforms and blocks)",
+        "args": { "amp_id": "int64", "channel": "0", "value": "MCF XML string" }
+      },
+      "cmd_GTENSetWaveforms": {
+        "description": "Set GTEN waveforms only",
+        "args": { "amp_id": "int64", "channel": "0", "value": "MCF XML waveforms element" }
+      },
+      "cmd_GTENSetBlocks": {
+        "description": "Set GTEN blocks only",
+        "args": { "amp_id": "int64", "channel": "0", "value": "MCF XML blocks element" }
+      },
+      "cmd_GTENStartTrain": {
+        "description": "Start neuromodulation train",
+        "args": { "amp_id": "int64", "channel": "0", "value": "1" }
+      },
+      "cmd_GTENAbortTrain": {
+        "description": "Abort running neuromodulation train",
+        "args": { "amp_id": "int64", "channel": "0", "value": "1" }
+      },
+      "cmd_GTENGetStatus": {
+        "description": "Query GTEN status (returns via notification port)",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      },
+      "cmd_GTENResetAlarm": {
+        "description": "Reset overcurrent alarm",
+        "args": { "amp_id": "int64", "channel": "N/A", "value": "N/A" }
+      }
+    }
+  },
+  "responses": {
+    "format": "(sendCommand_return ...)",
+    "status": {
+      "complete": "(status complete)",
+      "error": "(status error)"
+    },
+    "examples": {
+      "simple_success": "(sendCommand_return (status complete))",
+      "simple_error": "(sendCommand_return (status error))",
+      "amp_details": "(sendCommand_return (status complete) (amp_details (serial_number A14150128) (amp_type NA400) (legacy_board false) (packet_format 2) (system_version 1.6.15) (number_of_channels 256)))",
+      "client_connected": "(sendCommand_return (status complete) (amp_server_status_info (client_connected (client_id 19))))"
+    },
+    "info_elements": [
+      "amp_server_status_info",
+      "number_of_amps",
+      "amp_status_info",
+      "start_time",
+      "current_time",
+      "dio_values"
+    ]
+  },
+  "notifications": {
+    "gten": {
+      "ntn_GTENGetStatus": {
+        "fields": [
+          "Firmware Version",
+          "Remaining Time(ms)",
+          "Sentinal Alarm",
+          "Serial Number",
+          "Train Running",
+          "Waveform Pulsed",
+          "Waveform Type"
+        ]
+      },
+      "ntn_GTENSetTrainSucceeded": {},
+      "ntn_GTENSetTrainFailed": {},
+      "ntn_GTENSetWaveformSucceeded": {},
+      "ntn_GTENStartTrainSucceeded": {},
+      "ntn_GTENStartTrainFailed": {},
+      "ntn_GTENAbortTrainSucceeded": {},
+      "ntn_GTENAbortTrainFailed": {},
+      "ntn_GTENResetAlarmSucceeded": {},
+      "ntn_GTENResetAlarmFailed": {}
+    }
+  },
+  "eci": {
+    "commands": {
+      "Q": { "name": "eci_Query", "follow_data": "cccc (4 char code)", "description": "Legacy machine type query (MAC-, UNIX, NTEL)" },
+      "Y": { "name": "eci_NewQuery", "follow_data": null, "description": "New machine type query, returns ECI version" },
+      "X": { "name": "eci_Exit", "follow_data": null, "description": "End communications session" },
+      "B": { "name": "eci_BeginRecording", "follow_data": null, "description": "Start recording" },
+      "E": { "name": "eci_EndRecording", "follow_data": null, "description": "End recording" },
+      "A": { "name": "eci_Attention", "follow_data": null, "description": "Prepare for sync command" },
+      "T": { "name": "eci_ClockSynch", "follow_data": "llll (4 byte time)", "description": "Non-NTP clock sync" },
+      "N": { "name": "eci_NTPClockSynch", "follow_data": "llll (4 byte time)", "description": "NTP clock sync" },
+      "S": { "name": "eci_NTPReturnClockSynch", "follow_data": null, "description": "NTP sync with server time return (8 bytes)" },
+      "D": { "name": "eci_EventData", "follow_data": "<event_data>", "description": "Send event data" }
+    },
+    "responses": {
+      "Z": { "name": "eci_OK", "description": "Success" },
+      "F": { "name": "eci_Failure", "follow_data": "ss (2 byte error)", "description": "Failure" },
+      "R": { "name": "eci_NoRecordingDeviceFailure", "description": "No recording device" },
+      "I": { "name": "eci_Identify", "follow_data": "b (1 byte version)", "description": "Identify response" }
+    },
+    "machine_types": {
+      "MAC-": { "endian": "big" },
+      "UNIX": { "endian": "big" },
+      "NTEL": { "endian": "little" }
+    },
+    "new_machine_types": {
+      "u": "unknown",
+      "i": "i386",
+      "x": "x86_64",
+      "p": "ppc"
+    },
+    "event_data_format": {
+      "command": { "size": 1, "type": "char", "value": "D" },
+      "data_length": { "size": 2, "type": "uint16" },
+      "start_time": { "size": 4, "type": "int32", "unit": "milliseconds" },
+      "duration": { "size": 4, "type": "int32", "unit": "milliseconds" },
+      "event_code": { "size": 4, "type": "char[4]" },
+      "label_length": { "size": 1, "type": "uint8" },
+      "label": { "size": "variable", "type": "char[]", "max": 256 },
+      "description_length": { "size": 1, "type": "uint8" },
+      "description": { "size": "variable", "type": "char[]", "max": 256 },
+      "num_keys": { "size": 1, "type": "uint8" },
+      "keys": {
+        "key": { "size": 4, "type": "char[4]" },
+        "data_type": { "size": 4, "type": "char[4]" },
+        "length": { "size": 2, "type": "uint16" },
+        "data": { "size": "variable" }
+      }
+    },
+    "data_types": {
+      "bool": { "size": 1 },
+      "shor": { "size": 2 },
+      "long": { "size": 4 },
+      "sing": { "size": 4 },
+      "doub": { "size": 8 },
+      "type": { "size": 4 },
+      "TEXT": { "size": "variable" }
+    }
+  },
+  "gten_mcf": {
+    "waveform_types": {
+      "dcWaveform": {
+        "attributes": ["id"],
+        "description": "Simple DC level"
+      },
+      "pulsedDCWaveform": {
+        "attributes": ["id"],
+        "children": {
+          "pulseLength_us": "ON period in microseconds",
+          "delayLength_us": "OFF period in microseconds"
+        }
+      },
+      "rampWaveform": {
+        "attributes": ["id"],
+        "children": {
+          "type": "up or down",
+          "duration_ms": "Duration in milliseconds"
+        }
+      },
+      "arbitraryWaveform": {
+        "attributes": ["id"],
+        "children": {
+          "samples": "1024 space-delimited floats in [-1.0, 1.0]",
+          "frequencyNumerator": "Frequency ratio numerator",
+          "frequencyDenominator": "Frequency ratio denominator"
+        }
+      }
+    },
+    "block": {
+      "attributes": ["id"],
+      "children": {
+        "duration_ms": "Block duration in milliseconds (integer)",
+        "waveformId": "ID of waveform to use",
+        "spatialPattern": {
+          "electrode": {
+            "attributes": {
+              "channelID": "Zero-indexed channel number",
+              "amplitude": "Current in microamps [-200, 200]"
+            }
+          }
+        }
+      }
+    },
+    "tr_codes": {
+      "251": { "binary": "11111011", "meaning": "Injecting Current (TR&4 == 0)" },
+      "239": { "binary": "11101111", "meaning": "Block Start" },
+      "229": { "binary": "11100101", "meaning": "Overcurrent Alarm" }
+    }
+  }
+}
