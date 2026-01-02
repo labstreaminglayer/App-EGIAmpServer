@@ -58,6 +58,7 @@ private:
     void emitStatus(const std::string& message);
     void emitError(const std::string& message);
     void emitChannelCount(int count);
+    static bool commandCompleted(const std::string& response);
 
     bool queryAmplifierDetails();
     bool initAmplifier();
@@ -66,6 +67,7 @@ private:
     void readPacketFormat1();
     void readPacketFormat2();
     void processNotifications();
+    bool cmd_ImpedanceAcquisitionState();
 
     AmpServerConfig config_;
     AmpServerConnection connection_;

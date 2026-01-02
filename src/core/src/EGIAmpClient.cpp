@@ -3,10 +3,17 @@
 
 #include <chrono>
 #include <iostream>
+#include <limits>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
+#include <utility>
 
 namespace egiamp {
+
+bool EGIAmpClient::commandCompleted(const std::string& response) {
+    return response.find("(status complete)") != std::string::npos;
+}
 
 EGIAmpClient::EGIAmpClient() = default;
 
@@ -131,11 +138,20 @@ bool EGIAmpClient::initAmplifier() {
     // Power on
     connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
 
-    // Start
-    connection_.sendCommand("cmd_Start", ampId, 0, "0");
+    if (config_.impedance) {
+        try {
+            cmd_ImpedanceAcquisitionState();
+        } catch (const std::exception& ex) {
+            emitError(std::string("Failed to configure impedance mode: ") + ex.what());
+            return false;
+        }
+    } else {
+        // Set default acquisition state when not in impedance mode
+        connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
+    }
 
-    // Set default acquisition state
-    connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
+    // Start stream
+    connection_.sendCommand("cmd_Start", ampId, 0, "0");
 
     return true;
 }
@@ -153,6 +169,29 @@ void EGIAmpClient::haltAmplifier() {
         emitStatus("Stream Stopped.\n");
     } catch (...) {}
     stopFlag_ = false;
+}
+
+bool EGIAmpClient::cmd_ImpedanceAcquisitionState() {
+    emitStatus("Enabling impedance mode...\n");
+
+    const int ampId = config_.amplifierId;
+    const std::pair<const char*, const char*> commands[] = {
+        {"cmd_TurnAll10KOhms", "1"},
+        {"cmd_SetReference10KOhms", "1"},
+        {"cmd_SetSubjectGround", "1"},
+        {"cmd_SetCurrentSource", "1"},
+        {"cmd_TurnAllDriveSignals", "1"},
+    };
+
+    for (const auto& [command, value] : commands) {
+        const std::string response = connection_.sendCommand(command, ampId, 0, value);
+        if (!commandCompleted(response)) {
+            throw std::runtime_error(std::string(command) + " failed: " + response);
+        }
+    }
+
+    emitStatus("Impedance mode enabled.\n");
+    return true;
 }
 
 bool EGIAmpClient::startStreaming() {
@@ -298,8 +337,9 @@ void EGIAmpClient::readPacketFormat2() {
 
                 // Create LSL outlet
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                int outletRate = config_.impedance ? 0 : config_.sampleRate;
                 streamer_.createOutlet(streamName, nChannels,
-                                       config_.sampleRate, config_.serverAddress);
+                                       outletRate, config_.serverAddress);
             }
 
             // Check for dropped or duplicate packets
@@ -336,13 +376,38 @@ void EGIAmpClient::readPacketFormat2() {
                 lastPacketCounterWithTimeStamp_ = packet.packetCounter;
             }
 
+            
+            const bool impedanceEnabled = config_.impedance;
+            const bool injectingCurrent = (packet.tr & 0x04) == 0;
+            if (impedanceEnabled && !injectingCurrent) {
+                continue;
+            }
+            
             // Convert and push sample (PacketFormat2 is little endian natively)
             std::vector<float> samples;
             samples.reserve(nChannels);
+
+            const float refMicroVolts = static_cast<float>(packet.refMonitor) *
+                                        details_.scalingFactor;
+
             for (int ch = 0; ch < nChannels; ch++) {
-                samples.push_back(static_cast<float>(packet.eegData[ch]) *
-                                  details_.scalingFactor);
+                float channelData = static_cast<float>(packet.eegData[ch]) *
+                                          details_.scalingFactor;
+
+                if (impedanceEnabled) {
+                    float complianceVolts = std::numeric_limits<float>::quiet_NaN();
+                    if (injectingCurrent) {
+                        // section "Compliance Voltage" specifies
+                        // V_comp = (channel + ref) * 201.
+                        float complianceMicroVolts = (channelData + refMicroVolts) * 201.0f;
+                        complianceVolts = complianceMicroVolts * 1e-6f;
+                    }
+                    samples.push_back(complianceVolts);
+                } else {
+                    samples.push_back(channelData);
+                }
             }
+
             streamer_.pushSample(samples);
         }
     }
@@ -393,8 +458,9 @@ void EGIAmpClient::readPacketFormat1() {
 
                 // Create LSL outlet
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                int outletRate = config_.impedance ? 0 : config_.sampleRate;
                 streamer_.createOutlet(streamName, nChannels,
-                                       config_.sampleRate, config_.serverAddress);
+                                       outletRate, config_.serverAddress);
             }
 
             // Convert endianness and push sample

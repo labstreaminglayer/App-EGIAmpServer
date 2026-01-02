@@ -32,6 +32,7 @@ void printUsage(const char* programName) {
               << "  --amp-id <id>      Amplifier ID (default: 0)\n"
               << "  --sample-rate <hz> Sample rate (default: 1000)\n"
               << "  --listen-only      Don't initialize amp, just listen (for multi-client)\n"
+              << "  --impedance        Enable impedance mode (default: disabled)\n"
               << "  --help             Show this help message\n";
 }
 
@@ -60,11 +61,18 @@ int main(int argc, char* argv[]) {
             config.sampleRate = std::stoi(argv[++i]);
         } else if (arg == "--listen-only") {
             config.listenOnly = true;
+        } else if (arg == "--impedance") {
+            config.impedance = true;
         } else {
             std::cerr << "Unknown option: " << arg << std::endl;
             printUsage(argv[0]);
             return 1;
         }
+    }
+
+    if (config.impedance && config.listenOnly) {
+        std::cerr << "--impedance cannot be combined with --listen-only" << std::endl;
+        return 1;
     }
 
     // Load config file if specified
@@ -109,6 +117,7 @@ int main(int argc, char* argv[]) {
               << "  Amplifier ID: " << config.amplifierId << "\n"
               << "  Sample Rate: " << config.sampleRate << " Hz\n"
               << "  Listen Only: " << (config.listenOnly ? "yes" : "no") << "\n"
+              << "  Impedance Mode: " << (config.impedance ? "enabled" : "disabled") << "\n"
               << "Press Ctrl+C to stop.\n\n";
 
     // Connect and stream

@@ -37,10 +37,18 @@ To use the mock server for development:
 
 **Terminal 1: Start mock server**
 
-> python3 mock/mock_ampserver.py
+> python3 mock/mock_ampserver.py [--impedance]
 
 **Terminal 2: Run CLI or GUI against localhost**
 > ./cli/EGIAmpServerCLI --address 127.0.0.1
 > # or update ampserver_config.cfg to use 127.0.0.1 and run GUI
 
-The mock server generates synthetic sine waves (10-50 Hz) with noise for the EEG data, so you can also verify the LSL stream in downstream applications.
+The mock server generates synthetic sine waves (10-50 Hz) with noise for the EEG data. When launched with `--impedance`, it instead sets the TR byte to “injecting current” and fills `refMonitor`/`eegData` with deterministic counts so you can confirm the compliance-voltage math downstream.
+
+## Impedance mode toggle
+
+The CLI exposes an `--impedance` flag that takes no value: include it on the command line (e.g., `./cli/EGIAmpServerCLI --impedance`) to request impedance mode. 
+
+The same behavior can be configured in `ampserver_config.cfg` via the `<impedance>true</impedance>` setting under the `<settings>` block. When omitted, impedance mode remains disabled by default.
+
+When impedance mode is active the single LSL outlet (type `EEG`) carries compliance voltage samples instead of microvolt EEG. Each sample contains one value per electrode representing $(channel + ref) \times 201$, converted to volts. The outlet advertises an irregular sample rate and only publishes data while the TR bit indicates that current injection is on, so downstream consumers should expect bursts of samples separated by gaps. To recover absolute impedances divide the compliance voltage by the actual drive current used on your hardware.

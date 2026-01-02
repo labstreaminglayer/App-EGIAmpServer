@@ -18,6 +18,8 @@ struct AmpServerConfig {
     // If true, just listen to an already-running amp without initializing it.
     // This allows multiple clients to connect without disrupting each other.
     bool listenOnly = false;
+    // If true, Request hardware to enter impedance-measurement mode.
+    bool impedance = false;
 
     static AmpServerConfig loadFromFile(const std::string& filename);
     void saveToFile(const std::string& filename) const;
