@@ -34,6 +34,8 @@ target_include_directories(MockAmpServer PRIVATE
 target_compile_definitions(MockAmpServer PRIVATE
     ASIO_STANDALONE
     ASIO_NO_DEPRECATED
+    $<$<CXX_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
+    $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0601>
 )
 
 target_link_libraries(MockAmpServer PRIVATE Threads::Threads)
@@ -41,6 +43,8 @@ target_link_libraries(MockAmpServer PRIVATE Threads::Threads)
 # Platform-specific
 if(APPLE)
     target_link_libraries(MockAmpServer PRIVATE "-framework CoreFoundation")
+elseif(WIN32)
+    target_link_libraries(MockAmpServer PRIVATE ws2_32 mswsock)
 endif()
 
 # Install
