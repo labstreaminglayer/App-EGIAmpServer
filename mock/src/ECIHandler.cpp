@@ -1,4 +1,5 @@
 #include "ECIHandler.h"
+#include "ByteSwap.h"
 #include <cstring>
 #include <iostream>
 
@@ -208,7 +209,7 @@ void ECIHandler::handleNTPReturnSynch(std::shared_ptr<asio::ip::tcp::socket> soc
     // Send back 8-byte NTP time (simplified - just use our sync time)
     int64_t ntpTime = syncTime_;
     if (bigEndian_) {
-        ntpTime = __builtin_bswap64(ntpTime);
+        ntpTime = bswap64(ntpTime);
     }
     asio::write(*socket, asio::buffer(&ntpTime, 8));
 }
@@ -286,14 +287,14 @@ bool ECIHandler::readBytes(std::shared_ptr<asio::ip::tcp::socket> socket, void* 
 
 int32_t ECIHandler::swapIfNeeded(int32_t value) const {
     if (bigEndian_) {
-        return __builtin_bswap32(value);
+        return bswap32(value);
     }
     return value;
 }
 
 int16_t ECIHandler::swapIfNeeded(int16_t value) const {
     if (bigEndian_) {
-        return __builtin_bswap16(value);
+        return bswap16(value);
     }
     return value;
 }

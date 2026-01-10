@@ -1,4 +1,5 @@
 #include "DataStreamGenerator.h"
+#include "ByteSwap.h"
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -166,8 +167,8 @@ void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
 
         // Write header (network byte order = big endian)
         AmpDataPacketHeader header;
-        header.ampID = __builtin_bswap64(state.ampId);
-        header.length = __builtin_bswap64(dataSize);
+        header.ampID = bswap64(state.ampId);
+        header.length = bswap64(dataSize);
         std::memcpy(buffer.data(), &header, sizeof(header));
 
         // Generate sample packets
@@ -186,8 +187,8 @@ void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
 
         // Write header
         AmpDataPacketHeader header;
-        header.ampID = __builtin_bswap64(state.ampId);
-        header.length = __builtin_bswap64(dataSize);
+        header.ampID = bswap64(state.ampId);
+        header.length = bswap64(dataSize);
         std::memcpy(buffer.data(), &header, sizeof(header));
 
         // Generate sample packets
