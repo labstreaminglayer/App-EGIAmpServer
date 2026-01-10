@@ -209,7 +209,7 @@ void ECIHandler::handleNTPReturnSynch(std::shared_ptr<asio::ip::tcp::socket> soc
     // Send back 8-byte NTP time (simplified - just use our sync time)
     int64_t ntpTime = syncTime_;
     if (bigEndian_) {
-        ntpTime = bswap64(ntpTime);
+        ntpTime = static_cast<int64_t>(bswap64(static_cast<uint64_t>(ntpTime)));
     }
     asio::write(*socket, asio::buffer(&ntpTime, 8));
 }

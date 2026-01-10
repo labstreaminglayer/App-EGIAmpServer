@@ -167,8 +167,8 @@ void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
 
         // Write header (network byte order = big endian)
         AmpDataPacketHeader header;
-        header.ampID = bswap64(state.ampId);
-        header.length = bswap64(dataSize);
+        header.ampID = bswap64(static_cast<uint64_t>(state.ampId));
+        header.length = bswap64(static_cast<uint64_t>(dataSize));
         std::memcpy(buffer.data(), &header, sizeof(header));
 
         // Generate sample packets
@@ -187,8 +187,8 @@ void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
 
         // Write header
         AmpDataPacketHeader header;
-        header.ampID = bswap64(state.ampId);
-        header.length = bswap64(dataSize);
+        header.ampID = bswap64(static_cast<uint64_t>(state.ampId));
+        header.length = bswap64(static_cast<uint64_t>(dataSize));
         std::memcpy(buffer.data(), &header, sizeof(header));
 
         // Generate sample packets
