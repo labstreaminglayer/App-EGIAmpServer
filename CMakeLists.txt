@@ -25,7 +25,8 @@ option(EGIAMP_BUILD_MOCK "Build the mock EGI Amp device for testing" ON)
 set(LSL_SOURCE_DIR "" CACHE PATH "Path to liblsl source for parallel development (highest priority)")
 set(LSL_INSTALL_ROOT "" CACHE PATH "Path to installed liblsl (second priority)")
 option(LSL_FETCH_IF_MISSING "Fetch liblsl from GitHub if not found locally" ON)
-set(LSL_FETCH_VERSION "1.16.2" CACHE STRING "liblsl version to fetch from GitHub")
+# TODO: Change back to version tag (e.g., "v1.16.2") once apple_framework branch is merged
+set(LSL_FETCH_REF "cboulay/apple_framework" CACHE STRING "liblsl git ref to fetch (tag, branch, or commit)")
 
 # =============================================================================
 # Find/Fetch liblsl
@@ -65,12 +66,13 @@ else()
         set(LSL_BUILT_FROM_SOURCE FALSE)
     elseif(LSL_FETCH_IF_MISSING)
         # Priority 4: Fetch from GitHub
-        message(STATUS "liblsl not found locally, fetching v${LSL_FETCH_VERSION} from GitHub...")
+        message(STATUS "liblsl not found locally, fetching ${LSL_FETCH_REF} from GitHub...")
         include(FetchContent)
         FetchContent_Declare(liblsl
             GIT_REPOSITORY https://github.com/sccn/liblsl.git
-            GIT_TAG v${LSL_FETCH_VERSION}
+            GIT_TAG ${LSL_FETCH_REF}
             GIT_SHALLOW ON
+            EXCLUDE_FROM_ALL
         )
         set(LSL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
         set(LSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -278,11 +280,21 @@ if(APPLE AND EGIAMP_BUILD_GUI)
     set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
 
     install(CODE "
-        message(STATUS \"Running ad-hoc code signing...\")
+        set(_app \"\${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}/${PROJECT_NAME}.app\")
+        set(_ent \"${CMAKE_CURRENT_SOURCE_DIR}/app.entitlements\")
+
+        message(STATUS \"Signing app bundle...\")
         execute_process(
-            COMMAND codesign --force --deep --sign -
-                \"\${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}/${PROJECT_NAME}.app\"
+            COMMAND codesign --force --deep --sign - --entitlements \"\${_ent}\" \"\${_app}\"
+            RESULT_VARIABLE _sign_result
         )
+
+        execute_process(COMMAND codesign --verify --verbose \"\${_app}\" RESULT_VARIABLE _verify_result)
+        if(_verify_result EQUAL 0)
+            message(STATUS \"App bundle signature verified successfully\")
+        else()
+            message(WARNING \"App bundle signature verification failed!\")
+        endif()
     ")
 endif()
 
