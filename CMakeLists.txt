@@ -43,6 +43,7 @@ if(LSL_SOURCE_DIR)
         add_library(LSL::lsl ALIAS lsl)
     endif()
     set(LSL_BUILT_FROM_SOURCE TRUE)
+    include("${LSL_SOURCE_DIR}/cmake/LSLCMake.cmake")
 else()
     # Priority 2 & 3: Try to find installed version
     set(_lsl_hints)
@@ -51,6 +52,9 @@ else()
     endif()
     # Common development layout hints (including CLion cmake-build-* directories)
     string(TOLOWER "${CMAKE_BUILD_TYPE}" _build_type_lower)
+    if(NOT _build_type_lower)
+        set(_build_type_lower "release")
+    endif()
     if(MSVC)
         set(_clion_build_dir "cmake-build-${_build_type_lower}-visual-studio")
     else()
@@ -88,6 +92,7 @@ else()
     if(LSL_FOUND)
         message(STATUS "Found installed liblsl: ${LSL_DIR}")
         set(LSL_BUILT_FROM_SOURCE FALSE)
+        include("${LSL_DIR}/LSLCMake.cmake")
     elseif(LSL_FETCH_IF_MISSING)
         # Priority 4: Fetch from GitHub
         message(STATUS "liblsl not found locally, fetching ${LSL_FETCH_REF} from GitHub...")
@@ -105,6 +110,7 @@ else()
             add_library(LSL::lsl ALIAS lsl)
         endif()
         set(LSL_BUILT_FROM_SOURCE TRUE)
+        include("${liblsl_SOURCE_DIR}/cmake/LSLCMake.cmake")
         message(STATUS "liblsl fetched and configured")
     else()
         message(FATAL_ERROR
@@ -173,6 +179,11 @@ else()
 endif()
 
 # =============================================================================
+# RPATH Configuration (must be set before targets are created)
+# =============================================================================
+LSL_configure_rpath()
+
+# =============================================================================
 # Targets
 # =============================================================================
 
@@ -215,14 +226,6 @@ else()
     set(INSTALL_DATADIR "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}")
 endif()
 
-# Set RPATH for finding bundled liblsl
-if(APPLE)
-    set(CMAKE_INSTALL_RPATH "@executable_path;@executable_path/../Frameworks")
-elseif(UNIX AND NOT ANDROID)
-    set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
-endif()
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-
 # Install CLI
 if(EGIAMP_BUILD_CLI)
     install(TARGETS EGIAmpServerCLI
@@ -246,76 +249,24 @@ endif()
 install(FILES ampserver_config.cfg DESTINATION "${_install_dest}")
 
 # =============================================================================
-# Bundle liblsl with the application (install rules only - post-build in subdirs)
+# Bundle liblsl with the application
 # =============================================================================
-if(WIN32)
-    install(FILES $<TARGET_FILE:LSL::lsl> DESTINATION "${INSTALL_BINDIR}")
-elseif(APPLE AND EGIAMP_BUILD_GUI)
-    install(FILES $<TARGET_FILE:LSL::lsl>
-        DESTINATION "${INSTALL_BINDIR}/${PROJECT_NAME}.app/Contents/Frameworks"
-    )
-else()
-    # Linux
-    install(FILES $<TARGET_FILE:LSL::lsl> DESTINATION "${INSTALL_LIBDIR}")
-endif()
+LSL_install_liblsl(
+    DESTINATION "${INSTALL_LIBDIR}"
+    FRAMEWORK_DESTINATION "${INSTALL_BINDIR}/${PROJECT_NAME}.app/Contents/Frameworks"
+)
 
 # =============================================================================
-# Qt Deployment (install rules only - post-build handled in gui/CMakeLists.txt)
+# Qt Deployment
 # =============================================================================
 if(EGIAMP_BUILD_GUI)
-    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
-    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
-
-    if(WIN32)
-        find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
-        if(WINDEPLOYQT_EXECUTABLE)
-            install(CODE "
-                message(STATUS \"Running windeployqt for installation...\")
-                execute_process(
-                    COMMAND \"${WINDEPLOYQT_EXECUTABLE}\"
-                        --no-translations
-                        --no-system-d3d-compiler
-                        --no-opengl-sw
-                        --no-compiler-runtime
-                        --dir \"\${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}\"
-                        \"\${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}/${PROJECT_NAME}.exe\"
-                )
-            ")
-        endif()
-
-    elseif(APPLE)
-        find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${QT_BIN_DIR}")
-        if(MACDEPLOYQT_EXECUTABLE)
-            install(CODE "
-                message(STATUS \"Running macdeployqt...\")
-                execute_process(
-                    COMMAND \"${MACDEPLOYQT_EXECUTABLE}\"
-                        \"\${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}/${PROJECT_NAME}.app\"
-                        -verbose=1
-                        -always-overwrite
-                )
-            ")
-        endif()
-    endif()
+    LSL_deploy_qt(TARGET "${PROJECT_NAME}" DESTINATION "${INSTALL_BINDIR}")
 endif()
 
 # =============================================================================
 # MinGW Runtime Deployment
-# Copy MinGW runtime DLLs so executables work outside the build environment
 # =============================================================================
-if(MINGW)
-    get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    set(MINGW_RUNTIME_DLLS
-        "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"
-        "${MINGW_BIN_DIR}/libstdc++-6.dll"
-        "${MINGW_BIN_DIR}/libwinpthread-1.dll"
-    )
-    foreach(_dll ${MINGW_RUNTIME_DLLS})
-        if(EXISTS "${_dll}")
-            install(FILES "${_dll}" DESTINATION "${INSTALL_BINDIR}")
-        endif()
-    endforeach()
-endif()
+LSL_install_mingw_runtime(DESTINATION "${INSTALL_BINDIR}")
 
 # =============================================================================
 # macOS: Code signing
@@ -325,23 +276,12 @@ if(APPLE AND EGIAMP_BUILD_GUI)
     set(MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
     set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
 
-    install(CODE "
-        set(_app \"\${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}/${PROJECT_NAME}.app\")
-        set(_ent \"${CMAKE_CURRENT_SOURCE_DIR}/app.entitlements\")
-
-        message(STATUS \"Signing app bundle...\")
-        execute_process(
-            COMMAND codesign --force --deep --sign - --entitlements \"\${_ent}\" \"\${_app}\"
-            RESULT_VARIABLE _sign_result
-        )
-
-        execute_process(COMMAND codesign --verify --verbose \"\${_app}\" RESULT_VARIABLE _verify_result)
-        if(_verify_result EQUAL 0)
-            message(STATUS \"App bundle signature verified successfully\")
-        else()
-            message(WARNING \"App bundle signature verification failed!\")
-        endif()
-    ")
+    LSL_codesign(
+        TARGET "${PROJECT_NAME}"
+        DESTINATION "${INSTALL_BINDIR}"
+        ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/app.entitlements"
+        BUNDLE
+    )
 endif()
 
 # Post-build commands for copying config file are in subdirectory CMakeLists.txt
@@ -349,30 +289,15 @@ endif()
 # =============================================================================
 # CPack Configuration
 # =============================================================================
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)")
-    set(PACKAGE_ARCH "arm64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)")
-    set(PACKAGE_ARCH "amd64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(i.86|x86)")
-    set(PACKAGE_ARCH "i386")
-else()
-    set(PACKAGE_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
-endif()
-
-if(APPLE)
-    set(PACKAGE_OS "macOS")
-elseif(WIN32)
-    set(PACKAGE_OS "Win")
-else()
-    set(PACKAGE_OS "Linux")
-endif()
+LSL_get_target_arch()
+LSL_get_os_name()
 
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_VENDOR "Labstreaminglayer")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
-set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${PACKAGE_OS}_${PACKAGE_ARCH}")
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${LSL_OS}_${LSL_ARCH}")
 set(CPACK_STRIP_FILES ON)
 
 if(WIN32)
