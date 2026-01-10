@@ -15,112 +15,45 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # =============================================================================
-# Options
+# Build Options
 # =============================================================================
 option(EGIAMP_BUILD_GUI "Build the GUI application" ON)
 option(EGIAMP_BUILD_CLI "Build the CLI application" ON)
 option(EGIAMP_BUILD_MOCK "Build the mock EGI Amp device for testing" ON)
 
-# LSL dependency options
-set(LSL_SOURCE_DIR "" CACHE PATH "Path to liblsl source for parallel development (highest priority)")
-set(LSL_INSTALL_ROOT "" CACHE PATH "Path to installed liblsl (second priority)")
-option(LSL_FETCH_IF_MISSING "Fetch liblsl from GitHub if not found locally" ON)
-# TODO: Change back to version tag (e.g., "v1.16.2") once apple_framework branch is merged
-set(LSL_FETCH_REF "cboulay/apple_framework" CACHE STRING "liblsl git ref to fetch (tag, branch, or commit)")
+# =============================================================================
+# liblsl Dependency
+# =============================================================================
+# By default, liblsl is fetched automatically from GitHub.
+# To use a pre-installed liblsl, set LSL_INSTALL_ROOT.
+set(LSL_INSTALL_ROOT "" CACHE PATH "Path to installed liblsl (optional)")
+set(LSL_FETCH_REF "v1.17.0" CACHE STRING "liblsl version to fetch from GitHub")
 
-# =============================================================================
-# Find/Fetch liblsl
-# Priority: 1) LSL_SOURCE_DIR, 2) LSL_INSTALL_ROOT, 3) System install, 4) FetchContent
-# =============================================================================
-if(LSL_SOURCE_DIR)
-    # Priority 1: Build from local source (parallel development)
-    if(NOT EXISTS "${LSL_SOURCE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "LSL_SOURCE_DIR set to '${LSL_SOURCE_DIR}' but no CMakeLists.txt found there")
-    endif()
-    message(STATUS "Using local liblsl source: ${LSL_SOURCE_DIR}")
-    add_subdirectory("${LSL_SOURCE_DIR}" liblsl_bin EXCLUDE_FROM_ALL)
+if(LSL_INSTALL_ROOT)
+    # Use pre-installed liblsl
+    find_package(LSL REQUIRED
+        HINTS "${LSL_INSTALL_ROOT}"
+        PATH_SUFFIXES share/LSL lib/cmake/LSL Frameworks/lsl.framework/Resources/CMake
+    )
+    message(STATUS "Using installed liblsl: ${LSL_DIR}")
+    include("${LSL_DIR}/LSLCMake.cmake")
+else()
+    # Fetch liblsl from GitHub
+    message(STATUS "Fetching liblsl ${LSL_FETCH_REF} from GitHub...")
+    include(FetchContent)
+    set(LSL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(liblsl
+        GIT_REPOSITORY https://github.com/sccn/liblsl.git
+        GIT_TAG ${LSL_FETCH_REF}
+        GIT_SHALLOW ON
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(liblsl)
     if(NOT TARGET LSL::lsl)
         add_library(LSL::lsl ALIAS lsl)
     endif()
-    set(LSL_BUILT_FROM_SOURCE TRUE)
-    include("${LSL_SOURCE_DIR}/cmake/LSLCMake.cmake")
-else()
-    # Priority 2 & 3: Try to find installed version
-    set(_lsl_hints)
-    if(LSL_INSTALL_ROOT)
-        list(APPEND _lsl_hints "${LSL_INSTALL_ROOT}")
-    endif()
-    # Common development layout hints (including CLion cmake-build-* directories)
-    string(TOLOWER "${CMAKE_BUILD_TYPE}" _build_type_lower)
-    if(NOT _build_type_lower)
-        set(_build_type_lower "release")
-    endif()
-    if(MSVC)
-        set(_clion_build_dir "cmake-build-${_build_type_lower}-visual-studio")
-    else()
-        set(_clion_build_dir "cmake-build-${_build_type_lower}")
-    endif()
-    foreach(_root IN ITEMS "../liblsl" "../../LSL/liblsl")
-        foreach(_build IN ITEMS "build" "${_clion_build_dir}")
-            list(APPEND _lsl_hints "${CMAKE_CURRENT_LIST_DIR}/${_root}/${_build}/install")
-        endforeach()
-    endforeach()
-    # Also check Visual Studio layout
-    list(APPEND _lsl_hints "${CMAKE_CURRENT_LIST_DIR}/../../LSL/liblsl/out/install/x64-Release")
-
-    set(_lsl_suffixes
-        share/LSL
-        lib/cmake/LSL
-        cmake
-        Frameworks/lsl.framework/Resources/CMake
-    )
-
-    # First try: Search only in hints (prefer local builds over system)
-    find_package(LSL QUIET
-        HINTS ${_lsl_hints}
-        PATH_SUFFIXES ${_lsl_suffixes}
-        NO_DEFAULT_PATH
-    )
-
-    # Second try: Search system paths if not found in hints
-    if(NOT LSL_FOUND)
-        find_package(LSL QUIET
-            PATH_SUFFIXES ${_lsl_suffixes}
-        )
-    endif()
-
-    if(LSL_FOUND)
-        message(STATUS "Found installed liblsl: ${LSL_DIR}")
-        set(LSL_BUILT_FROM_SOURCE FALSE)
-        include("${LSL_DIR}/LSLCMake.cmake")
-    elseif(LSL_FETCH_IF_MISSING)
-        # Priority 4: Fetch from GitHub
-        message(STATUS "liblsl not found locally, fetching ${LSL_FETCH_REF} from GitHub...")
-        include(FetchContent)
-        FetchContent_Declare(liblsl
-            GIT_REPOSITORY https://github.com/sccn/liblsl.git
-            GIT_TAG ${LSL_FETCH_REF}
-            GIT_SHALLOW ON
-            EXCLUDE_FROM_ALL
-        )
-        set(LSL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(LSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-        FetchContent_MakeAvailable(liblsl)
-        if(NOT TARGET LSL::lsl)
-            add_library(LSL::lsl ALIAS lsl)
-        endif()
-        set(LSL_BUILT_FROM_SOURCE TRUE)
-        include("${liblsl_SOURCE_DIR}/cmake/LSLCMake.cmake")
-        message(STATUS "liblsl fetched and configured")
-    else()
-        message(FATAL_ERROR
-            "liblsl not found. Options:\n"
-            "  1. Set LSL_SOURCE_DIR to liblsl source directory\n"
-            "  2. Set LSL_INSTALL_ROOT to installed liblsl location\n"
-            "  3. Install liblsl system-wide\n"
-            "  4. Enable LSL_FETCH_IF_MISSING=ON to auto-fetch from GitHub"
-        )
-    endif()
+    include("${liblsl_SOURCE_DIR}/cmake/LSLCMake.cmake")
 endif()
 
 # =============================================================================
