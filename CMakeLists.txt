@@ -49,17 +49,41 @@ else()
     if(LSL_INSTALL_ROOT)
         list(APPEND _lsl_hints "${LSL_INSTALL_ROOT}")
     endif()
-    # Common development layout hints
-    list(APPEND _lsl_hints
-        "${CMAKE_CURRENT_LIST_DIR}/../../LSL/liblsl/build/install"
-        "${CMAKE_CURRENT_LIST_DIR}/../../LSL/liblsl/out/install/x64-Release"
-        "${CMAKE_CURRENT_LIST_DIR}/../liblsl/build/install"
+    # Common development layout hints (including CLion cmake-build-* directories)
+    string(TOLOWER "${CMAKE_BUILD_TYPE}" _build_type_lower)
+    if(MSVC)
+        set(_clion_build_dir "cmake-build-${_build_type_lower}-visual-studio")
+    else()
+        set(_clion_build_dir "cmake-build-${_build_type_lower}")
+    endif()
+    foreach(_root IN ITEMS "../liblsl" "../../LSL/liblsl")
+        foreach(_build IN ITEMS "build" "${_clion_build_dir}")
+            list(APPEND _lsl_hints "${CMAKE_CURRENT_LIST_DIR}/${_root}/${_build}/install")
+        endforeach()
+    endforeach()
+    # Also check Visual Studio layout
+    list(APPEND _lsl_hints "${CMAKE_CURRENT_LIST_DIR}/../../LSL/liblsl/out/install/x64-Release")
+
+    set(_lsl_suffixes
+        share/LSL
+        lib/cmake/LSL
+        cmake
+        Frameworks/lsl.framework/Resources/CMake
     )
 
+    # First try: Search only in hints (prefer local builds over system)
     find_package(LSL QUIET
         HINTS ${_lsl_hints}
-        PATH_SUFFIXES share/LSL lib/cmake/LSL cmake
+        PATH_SUFFIXES ${_lsl_suffixes}
+        NO_DEFAULT_PATH
     )
+
+    # Second try: Search system paths if not found in hints
+    if(NOT LSL_FOUND)
+        find_package(LSL QUIET
+            PATH_SUFFIXES ${_lsl_suffixes}
+        )
+    endif()
 
     if(LSL_FOUND)
         message(STATUS "Found installed liblsl: ${LSL_DIR}")
@@ -130,6 +154,10 @@ FetchContent_MakeAvailable(asio)
 add_library(asio INTERFACE)
 target_include_directories(asio INTERFACE "${asio_SOURCE_DIR}/asio/include")
 target_compile_definitions(asio INTERFACE ASIO_STANDALONE ASIO_NO_DEPRECATED)
+if(WIN32)
+    target_compile_definitions(asio INTERFACE _WIN32_WINNT=0x0601)  # Target Windows 7+
+    target_link_libraries(asio INTERFACE ws2_32 mswsock)
+endif()
 target_link_libraries(asio INTERFACE Threads::Threads)
 
 # pugixml - use the one bundled with liblsl if available, otherwise fetch
