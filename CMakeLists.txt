@@ -300,6 +300,24 @@ if(EGIAMP_BUILD_GUI)
 endif()
 
 # =============================================================================
+# MinGW Runtime Deployment
+# Copy MinGW runtime DLLs so executables work outside the build environment
+# =============================================================================
+if(MINGW)
+    get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(MINGW_RUNTIME_DLLS
+        "${MINGW_BIN_DIR}/libgcc_s_seh-1.dll"
+        "${MINGW_BIN_DIR}/libstdc++-6.dll"
+        "${MINGW_BIN_DIR}/libwinpthread-1.dll"
+    )
+    foreach(_dll ${MINGW_RUNTIME_DLLS})
+        if(EXISTS "${_dll}")
+            install(FILES "${_dll}" DESTINATION "${INSTALL_BINDIR}")
+        endif()
+    endforeach()
+endif()
+
+# =============================================================================
 # macOS: Code signing
 # =============================================================================
 if(APPLE AND EGIAMP_BUILD_GUI)
