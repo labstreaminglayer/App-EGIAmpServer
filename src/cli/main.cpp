@@ -31,7 +31,6 @@ void printUsage(const char* programName) {
               << "  --data-port <port> Data port (default: 9879)\n"
               << "  --amp-id <id>      Amplifier ID (default: 0)\n"
               << "  --sample-rate <hz> Sample rate (default: 1000)\n"
-              << "  --listen-only      Don't initialize amp, just listen (for multi-client)\n"
               << "  --help             Show this help message\n";
 }
 
@@ -58,8 +57,6 @@ int main(int argc, char* argv[]) {
             config.amplifierId = std::stoi(argv[++i]);
         } else if (arg == "--sample-rate" && i + 1 < argc) {
             config.sampleRate = std::stoi(argv[++i]);
-        } else if (arg == "--listen-only") {
-            config.listenOnly = true;
         } else {
             std::cerr << "Unknown option: " << arg << std::endl;
             printUsage(argv[0]);
@@ -108,7 +105,6 @@ int main(int argc, char* argv[]) {
               << "  Data Port: " << config.dataPort << "\n"
               << "  Amplifier ID: " << config.amplifierId << "\n"
               << "  Sample Rate: " << config.sampleRate << " Hz\n"
-              << "  Listen Only: " << (config.listenOnly ? "yes" : "no") << "\n"
               << "Press Ctrl+C to stop.\n\n";
 
     // Connect and stream

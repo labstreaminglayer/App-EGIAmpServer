@@ -115,6 +115,116 @@ bool EGIAmpClient::queryAmplifierDetails() {
     }
 }
 
+bool EGIAmpClient::isAmplifierStreaming() {
+    // Try to receive data with a short timeout to detect if amp is already running.
+    // After detection, we reconnect the data stream to reset the buffer position.
+    try {
+        connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+
+        auto& stream = connection_.dataStream();
+        stream.clear();
+        connection_.setDataStreamTimeout(std::chrono::seconds(2));
+
+        // Try to read a packet header
+        AmpDataPacketHeader header;
+        stream.read(reinterpret_cast<char*>(&header), sizeof(header));
+
+        bool wasStreaming = stream.good();
+
+        // Stop listening and reconnect the data stream to clear any buffered data
+        connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
+        connection_.reconnectDataStream();
+
+        return wasStreaming;
+    } catch (...) {
+        // Timeout or error - amp is not streaming
+        try {
+            connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
+            connection_.reconnectDataStream();
+        } catch (...) {}
+        return false;
+    }
+}
+
+int EGIAmpClient::detectSampleRate() {
+    // Read packets and calculate sample rate from unique packetCounter values.
+    // At lower sample rates, duplicate packets are sent (same packetCounter),
+    // so we count unique samples, not total packets received.
+    try {
+        connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+
+        auto& stream = connection_.dataStream();
+        stream.clear();
+        connection_.setDataStreamTimeout(std::chrono::seconds(3));
+
+        uint64_t firstTimestamp = 0;
+        uint64_t lastTimestamp = 0;
+        uint64_t lastPacketCounter = 0;
+        int uniqueSampleCount = 0;
+        const int packetsToRead = 1000;  // Read ~1 second of packets
+
+        for (int i = 0; i < packetsToRead && stream.good(); i++) {
+            AmpDataPacketHeader header;
+            stream.read(reinterpret_cast<char*>(&header), sizeof(header));
+            header.ampID = big_to_native(header.ampID);
+            header.length = big_to_native(header.length);
+
+            int nSamples = header.length / sizeof(PacketFormat2);
+            for (int s = 0; s < nSamples && stream.good(); s++) {
+                PacketFormat2 packet;
+                stream.read(reinterpret_cast<char*>(&packet), sizeof(packet));
+
+                // Only count unique samples (different packetCounter)
+                if (packet.packetCounter != lastPacketCounter) {
+                    if (firstTimestamp == 0) {
+                        firstTimestamp = packet.timeStamp;
+                    }
+                    lastTimestamp = packet.timeStamp;
+                    lastPacketCounter = packet.packetCounter;
+                    uniqueSampleCount++;
+                }
+            }
+        }
+
+        connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
+        connection_.reconnectDataStream();
+
+        if (uniqueSampleCount > 1 && lastTimestamp > firstTimestamp) {
+            // timeStamp is in microseconds
+            double durationUs = static_cast<double>(lastTimestamp - firstTimestamp);
+            double durationSec = durationUs / 1000000.0;
+            double rate = (uniqueSampleCount - 1) / durationSec;
+
+            // Round to nearest standard rate (250, 500, 1000)
+            if (rate < 375) return 250;
+            if (rate < 750) return 500;
+            return 1000;
+        }
+
+        return 0;  // Detection failed
+    } catch (...) {
+        try {
+            connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
+            connection_.reconnectDataStream();
+        } catch (...) {}
+        return 0;
+    }
+}
+
+bool EGIAmpClient::queryAmpState() {
+    // Query if amp is running and detect its sample rate
+    ampWasRunning_ = isAmplifierStreaming();
+
+    if (ampWasRunning_) {
+        detectedSampleRate_ = detectSampleRate();
+        emitStatus("Detected sample rate: " + std::to_string(detectedSampleRate_) + " Hz\n");
+    } else {
+        detectedSampleRate_ = 0;
+    }
+
+    return ampWasRunning_;
+}
+
 bool EGIAmpClient::initAmplifier() {
     emitStatus("Initializing Amplifier...\n");
 
@@ -145,13 +255,17 @@ void EGIAmpClient::haltAmplifier() {
     try {
         connection_.sendDatastreamCommand("cmd_StopListeningToAmp",
                                           config_.amplifierId, 0, "0");
-        if (!config_.listenOnly) {
-            // Only stop/power off if we initialized the amp
+        if (weInitializedAmp_) {
+            // Only stop/power off if we initialized the amp ourselves
             connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
             connection_.sendCommand("cmd_SetPower", config_.amplifierId, 0, "0");
+            emitStatus("Amplifier stopped.\n");
         }
         emitStatus("Stream Stopped.\n");
     } catch (...) {}
+
+    // Close the LSL outlet so next session starts fresh
+    streamer_.closeOutlet();
     stopFlag_ = false;
 }
 
@@ -167,19 +281,35 @@ bool EGIAmpClient::startStreaming() {
         return false;
     }
 
-    if (!config_.listenOnly) {
-        initAmplifier();
+    // Check if amplifier is already streaming data
+    bool ampRunning = isAmplifierStreaming();
+
+    if (ampRunning) {
+        emitStatus("Amplifier is already running, skipping initialization.\n");
+        weInitializedAmp_ = false;
+
+        // Detect and use the actual sample rate
+        int detectedRate = detectSampleRate();
+        if (detectedRate > 0) {
+            config_.sampleRate = detectedRate;
+            emitStatus("Using detected sample rate: " + std::to_string(detectedRate) + " Hz\n");
+        }
     } else {
-        emitStatus("Listen-only mode: skipping amplifier initialization\n");
+        emitStatus("Amplifier is not running, initializing...\n");
+        initAmplifier();
+        weInitializedAmp_ = true;
     }
 
-    // Send listen command
+    // Start listening for data
     connection_.sendDatastreamCommand("cmd_ListenToAmp",
                                       config_.amplifierId, 0, "0");
 
     if (details_.channelCount != 0) {
         emitChannelCount(details_.channelCount);
     }
+
+    // Subscribe to notifications
+    connection_.sendCommand("cmd_ReceiveNotifications", config_.amplifierId, 0, "0");
 
     // Start notification thread
     notificationThread_ = std::make_unique<std::thread>([this]() {
@@ -254,9 +384,15 @@ void EGIAmpClient::processNotifications() {
         char response[4096];
         stream.getline(response, sizeof(response));
 
-        if (std::string(response).length() > 0) {
+        std::string notification(response);
+        if (notification.length() > 0) {
             emitStatus("__________________________\n  Notification Received\n    " +
-                       std::string(response) + "\n__________________________\n");
+                       notification + "\n__________________________\n");
+
+            // Check for amp restart - sample rate may have changed
+            if (notification.find("ntn_AmpStarted") != std::string::npos) {
+                sampleRateChangeDetected_ = true;
+            }
         }
     }
 }
@@ -266,6 +402,13 @@ void EGIAmpClient::readPacketFormat2() {
     uint64_t lastPacketCounter = 0;
     int nChannels = details_.channelCount;
     bool firstPacketReceived = false;
+
+    // Sample rate change detection
+    bool measuringNewRate = false;
+    uint64_t rateCheckStartTimestamp = 0;
+    uint64_t rateCheckStartCounter = 0;
+    int rateCheckSampleCount = 0;
+    const int RATE_CHECK_SAMPLES = 500;  // Samples to measure over
 
     stream.clear();
     emitStatus("Starting stream.\n");
@@ -324,6 +467,52 @@ void EGIAmpClient::readPacketFormat2() {
 
             lastPacketCounter = packet.packetCounter;
             uniquePackets++;
+
+            // Sample rate change detection
+            if (sampleRateChangeDetected_ && !measuringNewRate) {
+                // Start measuring new rate
+                measuringNewRate = true;
+                rateCheckStartTimestamp = packet.timeStamp;
+                rateCheckStartCounter = packet.packetCounter;
+                rateCheckSampleCount = 0;
+                emitStatus("Amp restarted detected, measuring new sample rate...\n");
+            }
+
+            if (measuringNewRate) {
+                rateCheckSampleCount++;
+                if (rateCheckSampleCount >= RATE_CHECK_SAMPLES) {
+                    // Calculate new sample rate
+                    uint64_t durationUs = packet.timeStamp - rateCheckStartTimestamp;
+                    if (durationUs > 0) {
+                        double durationSec = static_cast<double>(durationUs) / 1000000.0;
+                        double measuredRate = (rateCheckSampleCount - 1) / durationSec;
+
+                        // Snap to standard rates
+                        int newRate;
+                        if (measuredRate < 375) newRate = 250;
+                        else if (measuredRate < 750) newRate = 500;
+                        else newRate = 1000;
+
+                        if (newRate != config_.sampleRate) {
+                            emitStatus("Sample rate changed from " +
+                                       std::to_string(config_.sampleRate) + " Hz to " +
+                                       std::to_string(newRate) + " Hz, recreating LSL outlet...\n");
+                            config_.sampleRate = newRate;
+
+                            // Recreate LSL outlet with new rate
+                            streamer_.closeOutlet();
+                            std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                            streamer_.createOutlet(streamName, nChannels,
+                                                   config_.sampleRate, config_.serverAddress);
+                        } else {
+                            emitStatus("Sample rate unchanged at " +
+                                       std::to_string(config_.sampleRate) + " Hz\n");
+                        }
+                    }
+                    measuringNewRate = false;
+                    sampleRateChangeDetected_ = false;
+                }
+            }
 
             // Timestamp logging (periodic)
             if (lastTimeStamp_ != 0 &&

@@ -14,7 +14,12 @@ void LSLStreamer::createOutlet(const std::string& streamName, int channelCount,
     closeOutlet();
 
     // Create stream info with unique source ID
-    std::string sourceId = streamName + "at_" + hostname;
+    // Include all parameters that make streams incompatible so clients
+    // won't auto-reconnect when these change
+    std::string sourceId = "EGI_" + hostname +
+                           "_ch" + std::to_string(channelCount) +
+                           "_sr" + std::to_string(sampleRate) +
+                           "_f32";
     lsl::stream_info info(streamName, "EEG", channelCount,
                           static_cast<double>(sampleRate),
                           lsl::cf_float32, sourceId);

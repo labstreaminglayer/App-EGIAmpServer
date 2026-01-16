@@ -11,6 +11,10 @@ AmpServerConnection::~AmpServerConnection() {
 bool AmpServerConnection::connect(const std::string& address, uint16_t cmdPort,
                                   uint16_t notifyPort, uint16_t dataPort) {
     try {
+        // Store for potential reconnection
+        serverAddress_ = address;
+        dataPort_ = dataPort;
+
         // Connect command stream
         commandStream_.clear();
         commandStream_.exceptions(std::ios::eofbit | std::ios::failbit | std::ios::badbit);
@@ -32,6 +36,18 @@ bool AmpServerConnection::connect(const std::string& address, uint16_t cmdPort,
         return true;
     } catch (...) {
         disconnect();
+        return false;
+    }
+}
+
+bool AmpServerConnection::reconnectDataStream() {
+    try {
+        dataStream_.close();
+        dataStream_.clear();
+        dataStream_.expires_after(std::chrono::seconds(5));
+        dataStream_.connect(serverAddress_, std::to_string(dataPort_));
+        return true;
+    } catch (...) {
         return false;
     }
 }

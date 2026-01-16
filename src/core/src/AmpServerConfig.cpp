@@ -40,9 +40,6 @@ AmpServerConfig AmpServerConfig::loadFromFile(const std::string& filename) {
         if (auto node = settings.child("samplingrate")) {
             config.sampleRate = node.text().as_int(config.sampleRate);
         }
-        if (auto node = settings.child("listenonly")) {
-            config.listenOnly = node.text().as_bool(config.listenOnly);
-        }
     }
 
     return config;
@@ -62,7 +59,6 @@ void AmpServerConfig::saveToFile(const std::string& filename) const {
     auto settings = doc.append_child("settings");
     settings.append_child("amplifierid").text().set(amplifierId);
     settings.append_child("samplingrate").text().set(sampleRate);
-    settings.append_child("listenonly").text().set(listenOnly);
 
     if (!doc.save_file(filename.c_str())) {
         throw ConfigError("Could not write to config file: " + filename);

@@ -1,7 +1,6 @@
 #include "EGIAmpWindow.h"
 #include "ui_EGIAmpWindow.h"
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -46,7 +45,6 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->commandPort, &QSpinBox::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->notificationPort, &QSpinBox::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->dataPort, &QSpinBox::setEnabled);
-    connect(this, &EGIAmpWindow::fieldsEnabled, ui->listenOnlyCheckBox, &QCheckBox::setEnabled);
     connect(this, &EGIAmpWindow::setLinkButtonText, ui->linkButton, &QPushButton::setText);
 
     // Set up client callbacks
@@ -98,7 +96,6 @@ void EGIAmpWindow::loadConfig(const std::string& filename) {
         ui->dataPort->setValue(config.dataPort);
         ui->amplifierId->setValue(config.amplifierId);
         ui->sampleRateComboBox->setCurrentText(QString::number(config.sampleRate));
-        ui->listenOnlyCheckBox->setChecked(config.listenOnly);
     } catch (const egiamp::ConfigError& e) {
         QMessageBox::information(this, "Error",
             QString("Cannot read config file: %1").arg(e.what()), QMessageBox::Ok);
@@ -123,7 +120,6 @@ egiamp::AmpServerConfig EGIAmpWindow::getConfigFromUI() const {
     config.dataPort = static_cast<uint16_t>(ui->dataPort->value());
     config.amplifierId = ui->amplifierId->value();
     config.sampleRate = ui->sampleRateComboBox->currentText().toInt();
-    config.listenOnly = ui->listenOnlyCheckBox->isChecked();
     return config;
 }
 
@@ -147,10 +143,24 @@ void EGIAmpWindow::linkAmpserver() {
         auto config = getConfigFromUI();
         client_->setConfig(config);
 
+        emit appendStatusMessage("Connecting to AmpServer...");
         if (!client_->connect()) {
             emit error("Could not connect to AmpServer. Please check network settings "
                        "and ensure AmpServer is running.");
             return;
+        }
+
+        // Query amplifier state to detect if it's already running
+        emit appendStatusMessage("Querying amplifier state...");
+        client_->queryAmpState();
+        if (client_->ampWasRunning()) {
+            int detectedRate = client_->detectedSampleRate();
+            if (detectedRate > 0) {
+                ui->sampleRateComboBox->setCurrentText(QString::number(detectedRate));
+                emit appendStatusMessage(QString("Amplifier already running at %1 Hz").arg(detectedRate));
+            } else {
+                emit appendStatusMessage("Amplifier already running (sample rate detection failed, using configured rate)");
+            }
         }
 
         if (!client_->startStreaming()) {

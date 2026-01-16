@@ -46,6 +46,11 @@ public:
     bool startStreaming();
     void stopStreaming();
 
+    // Query amp state - returns true if amp is already running, updates detectedSampleRate
+    bool queryAmpState();
+    int detectedSampleRate() const { return detectedSampleRate_; }
+    bool ampWasRunning() const { return ampWasRunning_; }
+
     const AmplifierDetails& amplifierDetails() const { return details_; }
 
     void setStatusCallback(StatusCallback cb) { statusCallback_ = std::move(cb); }
@@ -60,6 +65,8 @@ private:
     void emitChannelCount(int count);
 
     bool queryAmplifierDetails();
+    bool isAmplifierStreaming();
+    int detectSampleRate();  // Returns detected sample rate, or 0 if detection failed
     bool initAmplifier();
     void haltAmplifier();
 
@@ -73,6 +80,10 @@ private:
     AmplifierDetails details_;
 
     std::atomic<bool> stopFlag_{false};
+    std::atomic<bool> sampleRateChangeDetected_{false};  // Set when ntn_AmpStarted received
+    bool weInitializedAmp_{false};  // Track if we initialized the amp (vs. it was already running)
+    bool ampWasRunning_{false};     // Was the amp running when we queried state?
+    int detectedSampleRate_{0};     // Sample rate detected from running amp
     std::unique_ptr<std::thread> readerThread_;
     std::unique_ptr<std::thread> notificationThread_;
 

@@ -26,6 +26,9 @@ public:
     void disconnect();
     bool isConnected() const;
 
+    // Reconnect just the data stream (used to reset stream position after detection)
+    bool reconnectDataStream();
+
     std::string sendCommand(const std::string& command, int ampId,
                             int channel = 0, const std::string& value = "0");
     void sendDatastreamCommand(const std::string& command, int ampId,
@@ -50,6 +53,8 @@ private:
     socket_stream notificationStream_;
     socket_stream dataStream_;
     std::atomic<bool> connected_{false};
+    std::string serverAddress_;
+    uint16_t dataPort_{0};
 };
 
 } // namespace egiamp

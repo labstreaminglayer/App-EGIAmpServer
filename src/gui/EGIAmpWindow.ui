@@ -141,16 +141,6 @@
          </item>
         </widget>
        </item>
-       <item row="2" column="0" colspan="2">
-        <widget class="QCheckBox" name="listenOnlyCheckBox">
-         <property name="text">
-          <string>Listen only (don't initialize amplifier)</string>
-         </property>
-         <property name="toolTip">
-          <string>Enable this to connect without resetting the amplifier, allowing multiple clients</string>
-         </property>
-        </widget>
-       </item>
       </layout>
      </widget>
     </item>
