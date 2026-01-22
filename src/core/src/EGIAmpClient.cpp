@@ -5,6 +5,8 @@
 #include <iostream>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
+#include <utility>
 
 namespace egiamp {
 
@@ -54,6 +56,39 @@ void EGIAmpClient::emitChannelCount(int count) {
     if (channelCountCallback_) {
         channelCountCallback_(count);
     }
+}
+
+void EGIAmpClient::emitSensor(NetCode code) {
+    if (sensorCallback_) {
+        sensorCallback_(code);
+    }
+}
+
+bool EGIAmpClient::commandCompleted(const std::string& response) {
+    return response.find("(status complete)") != std::string::npos;
+}
+
+bool EGIAmpClient::cmd_ImpedanceAcquisitionState() {
+    emitStatus("Enabling impedance mode...\n");
+
+    const int ampId = config_.amplifierId;
+    const std::pair<const char*, const char*> commands[] = {
+        {"cmd_TurnAll10KOhms", "1"},
+        {"cmd_SetReference10KOhms", "1"},
+        {"cmd_SetSubjectGround", "1"},
+        {"cmd_SetCurrentSource", "1"},
+        {"cmd_TurnAllDriveSignals", "1"},
+    };
+
+    for (const auto& [command, value] : commands) {
+        const std::string response = connection_.sendCommand(command, ampId, 0, value);
+        if (!commandCompleted(response)) {
+            throw std::runtime_error(std::string(command) + " failed: " + response);
+        }
+    }
+
+    emitStatus("Impedance mode enabled.\n");
+    return true;
 }
 
 bool EGIAmpClient::queryAmplifierDetails() {
@@ -150,6 +185,7 @@ int EGIAmpClient::detectSampleRate() {
     // Read packets and calculate sample rate from unique packetCounter values.
     // At lower sample rates, duplicate packets are sent (same packetCounter),
     // so we count unique samples, not total packets received.
+    // Also detects the sensor net code from the first packet.
     try {
         connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
 
@@ -161,6 +197,7 @@ int EGIAmpClient::detectSampleRate() {
         uint64_t lastTimestamp = 0;
         uint64_t lastPacketCounter = 0;
         int uniqueSampleCount = 0;
+        bool netCodeCaptured = false;
         const int packetsToRead = 1000;  // Read ~1 second of packets
 
         for (int i = 0; i < packetsToRead && stream.good(); i++) {
@@ -173,6 +210,12 @@ int EGIAmpClient::detectSampleRate() {
             for (int s = 0; s < nSamples && stream.good(); s++) {
                 PacketFormat2 packet;
                 stream.read(reinterpret_cast<char*>(&packet), sizeof(packet));
+
+                // Capture net code from the first packet
+                if (!netCodeCaptured) {
+                    detectedNetCode_ = static_cast<NetCode>(packet.netCode);
+                    netCodeCaptured = true;
+                }
 
                 // Only count unique samples (different packetCounter)
                 if (packet.packetCounter != lastPacketCounter) {
@@ -212,14 +255,16 @@ int EGIAmpClient::detectSampleRate() {
 }
 
 bool EGIAmpClient::queryAmpState() {
-    // Query if amp is running and detect its sample rate
+    // Query if amp is running and detect its sample rate and sensor
     ampWasRunning_ = isAmplifierStreaming();
 
     if (ampWasRunning_) {
         detectedSampleRate_ = detectSampleRate();
         emitStatus("Detected sample rate: " + std::to_string(detectedSampleRate_) + " Hz\n");
+        emitStatus(std::string("Detected sensor: ") + netCodeName(detectedNetCode_) + "\n");
     } else {
         detectedSampleRate_ = 0;
+        detectedNetCode_ = NetCode::Unknown;
     }
 
     return ampWasRunning_;
@@ -241,11 +286,21 @@ bool EGIAmpClient::initAmplifier() {
     // Power on
     connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
 
+    // Configure acquisition state (impedance or default)
+    if (config_.impedance) {
+        try {
+            cmd_ImpedanceAcquisitionState();
+        } catch (const std::exception& ex) {
+            emitError(std::string("Failed to configure impedance mode: ") + ex.what());
+            return false;
+        }
+    } else {
+        // Set default acquisition state when not in impedance mode
+        connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
+    }
+
     // Start
     connection_.sendCommand("cmd_Start", ampId, 0, "0");
-
-    // Set default acquisition state
-    connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
 
     return true;
 }
@@ -264,8 +319,9 @@ void EGIAmpClient::haltAmplifier() {
         emitStatus("Stream Stopped.\n");
     } catch (...) {}
 
-    // Close the LSL outlet so next session starts fresh
+    // Close the LSL outlets so next session starts fresh
     streamer_.closeOutlet();
+    impedanceStreamer_.closeOutlet();
     stopFlag_ = false;
 }
 
@@ -350,6 +406,21 @@ void EGIAmpClient::stopStreaming() {
     }
 }
 
+bool EGIAmpClient::shutdownAmpServer() {
+    try {
+        emitStatus("Sending shutdown command to Amp Server...\n");
+        connection_.sendCommand("cmd_Exit", 0, 0, "0");
+        emitStatus("Amp Server shutdown command sent.\n");
+        return true;
+    } catch (const std::exception& ex) {
+        emitError(std::string("Failed to send shutdown command: ") + ex.what());
+        return false;
+    } catch (...) {
+        emitError("Failed to send shutdown command: unknown error");
+        return false;
+    }
+}
+
 void EGIAmpClient::run() {
     if (!connect()) {
         emitError("Could not connect to AmpServer. Please check network settings.");
@@ -430,19 +501,29 @@ void EGIAmpClient::readPacketFormat2() {
             stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
 
             if (!streamer_.hasOutlet()) {
-                // Determine channel count from net code
-                int detectedChannels = getChannelCountFromNetCode(
-                    static_cast<NetCode>(packet.netCode));
+                // Determine channel count and sensor from net code
+                details_.netCode = static_cast<NetCode>(packet.netCode);
+                int detectedChannels = getChannelCountFromNetCode(details_.netCode);
                 if (detectedChannels > 0) {
                     nChannels = detectedChannels;
                 }
 
+                emitStatus(std::string("Sensor: ") + netCodeName(details_.netCode) + "\n");
+                emitSensor(details_.netCode);
                 emitChannelCount(nChannels);
 
-                // Create LSL outlet
+                // Create LSL outlet for EEG
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
                 streamer_.createOutlet(streamName, nChannels,
-                                       config_.sampleRate, config_.serverAddress);
+                                       config_.sampleRate, config_.serverAddress, details_);
+
+                // Create LSL outlet for impedance if enabled
+                if (config_.impedance) {
+                    std::string impedanceStreamName = streamName + " Impedance";
+                    impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
+                                                             config_.serverAddress, details_);
+                    emitStatus("Impedance stream created.\n");
+                }
             }
 
             // Check for dropped or duplicate packets
@@ -496,14 +577,22 @@ void EGIAmpClient::readPacketFormat2() {
                         if (newRate != config_.sampleRate) {
                             emitStatus("Sample rate changed from " +
                                        std::to_string(config_.sampleRate) + " Hz to " +
-                                       std::to_string(newRate) + " Hz, recreating LSL outlet...\n");
+                                       std::to_string(newRate) + " Hz, recreating LSL outlets...\n");
                             config_.sampleRate = newRate;
 
-                            // Recreate LSL outlet with new rate
+                            // Recreate LSL outlets with new rate
                             streamer_.closeOutlet();
                             std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
                             streamer_.createOutlet(streamName, nChannels,
-                                                   config_.sampleRate, config_.serverAddress);
+                                                   config_.sampleRate, config_.serverAddress, details_);
+
+                            // Recreate impedance outlet if enabled
+                            if (config_.impedance) {
+                                impedanceStreamer_.closeOutlet();
+                                std::string impedanceStreamName = streamName + " Impedance";
+                                impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
+                                                                         config_.serverAddress, details_);
+                            }
                         } else {
                             emitStatus("Sample rate unchanged at " +
                                        std::to_string(config_.sampleRate) + " Hz\n");
@@ -525,14 +614,41 @@ void EGIAmpClient::readPacketFormat2() {
                 lastPacketCounterWithTimeStamp_ = packet.packetCounter;
             }
 
-            // Convert and push sample (PacketFormat2 is little endian natively)
-            std::vector<float> samples;
-            samples.reserve(nChannels);
+            // Convert and push sample to EEG stream (PacketFormat2 is little endian natively)
+            std::vector<float> eegSamples;
+            eegSamples.reserve(nChannels);
             for (int ch = 0; ch < nChannels; ch++) {
-                samples.push_back(static_cast<float>(packet.eegData[ch]) *
-                                  details_.scalingFactor);
+                eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
+                                     details_.scalingFactor);
             }
-            streamer_.pushSample(samples);
+            streamer_.pushSample(eegSamples);
+
+            // Push impedance data if in impedance mode and current is injecting
+            if (config_.impedance && impedanceStreamer_.hasOutlet()) {
+                // Check TR byte: bit 2 cleared means injecting current
+                bool injectingCurrent = (packet.tr & 0x04) == 0;
+
+                if (injectingCurrent) {
+                    // Calculate compliance voltage
+                    float refMicroVolts = static_cast<float>(packet.refMonitor) *
+                                          details_.scalingFactor;
+
+                    std::vector<float> impedanceSamples;
+                    impedanceSamples.reserve(nChannels);
+
+                    for (int ch = 0; ch < nChannels; ch++) {
+                        float channelMicroVolts = static_cast<float>(packet.eegData[ch]) *
+                                                  details_.scalingFactor;
+                        // Compliance voltage formula: (channel + ref) * 201
+                        float complianceMicroVolts = (channelMicroVolts + refMicroVolts) * 201.0f;
+                        // Convert to volts
+                        float complianceVolts = complianceMicroVolts * 1e-6f;
+                        impedanceSamples.push_back(complianceVolts);
+                    }
+
+                    impedanceStreamer_.pushSample(impedanceSamples);
+                }
+            }
         }
     }
 
@@ -570,20 +686,22 @@ void EGIAmpClient::readPacketFormat1() {
 
                 // Extract net code from header
                 auto* headerBytes = reinterpret_cast<uint8_t*>(packet.header);
-                uint8_t netCode = (headerBytes[26] & 0x78) >> 3;
+                uint8_t netCodeByte = (headerBytes[26] & 0x78) >> 3;
+                details_.netCode = static_cast<NetCode>(netCodeByte);
 
-                int detectedChannels = getChannelCountFromNetCode(
-                    static_cast<NetCode>(netCode));
+                int detectedChannels = getChannelCountFromNetCode(details_.netCode);
                 if (detectedChannels > 0) {
                     nChannels = detectedChannels;
                 }
 
+                emitStatus(std::string("Sensor: ") + netCodeName(details_.netCode) + "\n");
+                emitSensor(details_.netCode);
                 emitChannelCount(nChannels);
 
                 // Create LSL outlet
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
                 streamer_.createOutlet(streamName, nChannels,
-                                       config_.sampleRate, config_.serverAddress);
+                                       config_.sampleRate, config_.serverAddress, details_);
             }
 
             // Convert endianness and push sample

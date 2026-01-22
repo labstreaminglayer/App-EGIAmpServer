@@ -354,7 +354,7 @@ std::string CommandHandler::cmdSetDecimatedRate(int64_t ampId, int16_t channel, 
 
 std::string CommandHandler::cmdGetStartTime(int64_t ampId, int16_t channel, const std::string& value) {
     int64_t startTime = amplifier_->getStartTime();
-    return responseWithData("(start_time " + std::to_string(startTime) + ")");
+    return responseWithData("(amp_status_info (start_time " + std::to_string(startTime) + "))");
 }
 
 std::string CommandHandler::cmdGetAmpDetails(int64_t ampId, int16_t channel, const std::string& value) {
@@ -371,8 +371,8 @@ std::string CommandHandler::cmdGetAmpDetails(int64_t ampId, int16_t channel, con
 }
 
 std::string CommandHandler::cmdGetAmpStatus(int64_t ampId, int16_t channel, const std::string& value) {
-    // Not implemented in SDK
-    return responseWithData("(amp_status_info (status not_implemented))");
+    // Real amp just returns success with no data
+    return successResponse();
 }
 
 std::string CommandHandler::cmdTurnChannelZeroOhms(int64_t ampId, int16_t channel, const std::string& value) {
@@ -402,12 +402,12 @@ std::string CommandHandler::cmdGetPhysioConnectionStatus(int64_t ampId, int16_t 
 }
 
 std::string CommandHandler::cmdNumberOfAmps(int64_t ampId, int16_t channel, const std::string& value) {
-    return responseWithData("(number_of_amps 1)");
+    return responseWithData("(amp_server_status_info (number_of_amps 1))");
 }
 
 std::string CommandHandler::cmdNumberOfActiveAmps(int64_t ampId, int16_t channel, const std::string& value) {
     int active = amplifier_->isPowered() ? 1 : 0;
-    return responseWithData("(number_of_amps " + std::to_string(active) + ")");
+    return responseWithData("(amp_server_status_info (number_of_active_amps " + std::to_string(active) + "))");
 }
 
 std::string CommandHandler::cmdListenToAmp(int64_t ampId, int16_t channel, const std::string& value) {

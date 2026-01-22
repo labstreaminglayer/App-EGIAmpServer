@@ -24,6 +24,7 @@ private slots:
     void loadConfigDialog();
     void saveConfigDialog();
     void linkAmpserver();
+    void shutdownAmpServer();
     void displayError(QString description);
     void unlockUI();
     void lockUI();
@@ -31,6 +32,7 @@ private slots:
 signals:
     void appendStatusMessage(QString message);
     void channelCountUpdated(int channelCount);
+    void sensorLayoutUpdated(QString sensorName);
     void fieldsEnabled(bool enabled);
     void setLinkButtonText(QString text);
     void error(QString description);

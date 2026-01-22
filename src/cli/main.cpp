@@ -31,12 +31,15 @@ void printUsage(const char* programName) {
               << "  --data-port <port> Data port (default: 9879)\n"
               << "  --amp-id <id>      Amplifier ID (default: 0)\n"
               << "  --sample-rate <hz> Sample rate (default: 1000)\n"
+              << "  --impedance        Enable impedance testing mode (default: disabled)\n"
+              << "  --shutdown         Shutdown the Amp Server (terminates all connections)\n"
               << "  --help             Show this help message\n";
 }
 
 int main(int argc, char* argv[]) {
     egiamp::AmpServerConfig config;
     std::string configFile;
+    bool shutdownMode = false;
 
     // Parse command-line arguments
     for (int i = 1; i < argc; i++) {
@@ -57,6 +60,10 @@ int main(int argc, char* argv[]) {
             config.amplifierId = std::stoi(argv[++i]);
         } else if (arg == "--sample-rate" && i + 1 < argc) {
             config.sampleRate = std::stoi(argv[++i]);
+        } else if (arg == "--impedance") {
+            config.impedance = true;
+        } else if (arg == "--shutdown") {
+            shutdownMode = true;
         } else {
             std::cerr << "Unknown option: " << arg << std::endl;
             printUsage(argv[0]);
@@ -98,6 +105,34 @@ int main(int argc, char* argv[]) {
         std::cout << "Channel count: " << count << std::endl;
     });
 
+    // Handle shutdown mode
+    if (shutdownMode) {
+        std::cout << "WARNING: This will terminate the Amp Server process.\n"
+                  << "         All clients connected to the amplifier will be disconnected.\n"
+                  << "         Address: " << config.serverAddress << "\n"
+                  << "         Command Port: " << config.commandPort << "\n\n"
+                  << "Are you sure you want to proceed? (y/N): ";
+
+        std::string response;
+        std::getline(std::cin, response);
+
+        if (response != "y" && response != "Y") {
+            std::cout << "Shutdown cancelled.\n";
+            return 0;
+        }
+
+        if (!client.connect()) {
+            std::cerr << "Failed to connect to AmpServer at "
+                      << config.serverAddress << std::endl;
+            return 1;
+        }
+
+        bool success = client.shutdownAmpServer();
+        client.disconnect();
+
+        return success ? 0 : 1;
+    }
+
     // Print connection info
     std::cout << "EGI AmpServer CLI\n"
               << "  Address: " << config.serverAddress << "\n"
@@ -105,6 +140,7 @@ int main(int argc, char* argv[]) {
               << "  Data Port: " << config.dataPort << "\n"
               << "  Amplifier ID: " << config.amplifierId << "\n"
               << "  Sample Rate: " << config.sampleRate << " Hz\n"
+              << "  Impedance Mode: " << (config.impedance ? "enabled" : "disabled") << "\n"
               << "Press Ctrl+C to stop.\n\n";
 
     // Connect and stream

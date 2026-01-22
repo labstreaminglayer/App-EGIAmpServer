@@ -1,0 +1,38 @@
+{
+  "_comment": "Microvolt scaling factors for EGI amplifiers. Multiply raw ADC values by these factors to get microvolts.",
+  "_source": "Extracted from EGI Net Station Acquisition.app/Contents/Resources/Amp Servers.plist",
+  "scaling_factors": {
+    "NA300": {
+      "microvolt_scale": 0.0244140625,
+      "description": "Net Amps 300 series"
+    },
+    "NA400": {
+      "microvolt_scale": 0.00015522042,
+      "description": "Net Amps 400 series"
+    },
+    "NA410": {
+      "microvolt_scale": 0.00009636188,
+      "description": "Net Amps 410 series"
+    },
+    "TI": {
+      "microvolt_scale": 0.02384185791016,
+      "description": "TI-based amplifier"
+    },
+    "TI_4V_REF": {
+      "microvolt_scale": 0.03973642985026,
+      "description": "TI-based amplifier with 4V reference"
+    },
+    "LEG": {
+      "microvolt_scale": 0.02466864289467,
+      "description": "Legacy amplifier"
+    },
+    "PHYSIO": {
+      "microvolt_scale": 0.28610229492188,
+      "description": "Physio channels (PIB data)"
+    }
+  },
+  "units": {
+    "input": "raw ADC counts",
+    "output": "microvolts (µV)"
+  }
+}

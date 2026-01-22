@@ -11,6 +11,9 @@
 
 namespace egiamp {
 
+// Forward declaration
+struct AmplifierDetails;
+
 class LSLStreamer {
 public:
     LSLStreamer();
@@ -20,7 +23,12 @@ public:
     LSLStreamer& operator=(const LSLStreamer&) = delete;
 
     void createOutlet(const std::string& streamName, int channelCount,
-                      int sampleRate, const std::string& hostname);
+                      int sampleRate, const std::string& hostname,
+                      const AmplifierDetails& details);
+
+    void createImpedanceOutlet(const std::string& streamName, int channelCount,
+                               const std::string& hostname,
+                               const AmplifierDetails& details);
 
     void pushSample(const std::vector<float>& sample);
 

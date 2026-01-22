@@ -14,6 +14,7 @@ struct AmpServerConfig {
     uint16_t dataPort = 9879;
     int amplifierId = 0;
     int sampleRate = 1000;
+    bool impedance = false;
 
     static AmpServerConfig loadFromFile(const std::string& filename);
     void saveToFile(const std::string& filename) const;

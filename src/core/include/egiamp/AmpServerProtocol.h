@@ -156,6 +156,39 @@ inline const char* amplifierTypeName(AmplifierType type) {
     }
 }
 
+inline const char* netCodeName(NetCode code) {
+    switch (code) {
+        case NetCode::GSN64_2_0:
+            return "GSN-64 2.0";
+        case NetCode::GSN128_2_0:
+            return "GSN-128 2.0";
+        case NetCode::GSN256_2_0:
+            return "GSN-256 2.0";
+        case NetCode::HCGSN32_1_0:
+            return "HydroCel GSN-32 1.0";
+        case NetCode::HCGSN64_1_0:
+            return "HydroCel GSN-64 1.0";
+        case NetCode::HCGSN128_1_0:
+            return "HydroCel GSN-128 1.0";
+        case NetCode::HCGSN256_1_0:
+            return "HydroCel GSN-256 1.0";
+        case NetCode::MCGSN32_1_0:
+            return "MicroCel GSN-32 1.0";
+        case NetCode::MCGSN64_1_0:
+            return "MicroCel GSN-64 1.0";
+        case NetCode::MCGSN128_1_0:
+            return "MicroCel GSN-128 1.0";
+        case NetCode::MCGSN256_1_0:
+            return "MicroCel GSN-256 1.0";
+        case NetCode::TestConnector:
+            return "Test Connector";
+        case NetCode::NoNet:
+            return "No Net Connected";
+        default:
+            return "Unknown";
+    }
+}
+
 } // namespace egiamp
 
 #endif // EGIAMP_AMPSERVERPROTOCOL_H

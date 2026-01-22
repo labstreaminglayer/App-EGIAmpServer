@@ -1,0 +1,128 @@
+{
+  "_comment": "Digital input (DIN) configuration for EGI amplifiers",
+  "_source": "Extracted from EGI Net Station Acquisition.app/Contents/Resources/DIN filters.plist",
+  "debounce_microseconds": 3000,
+  "din_channels": {
+    "DIN1": {
+      "bit_offset": 0,
+      "bit_count": 1,
+      "default_code": "DIN1",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 1 (single bit)"
+    },
+    "DIN2": {
+      "bit_offset": 1,
+      "bit_count": 1,
+      "default_code": "DIN2",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 2 (single bit)"
+    },
+    "DIN3": {
+      "bit_offset": 2,
+      "bit_count": 1,
+      "default_code": "DIN3",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 3 (single bit)"
+    },
+    "DIN4": {
+      "bit_offset": 3,
+      "bit_count": 1,
+      "default_code": "DIN4",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 4 (single bit)"
+    },
+    "DIN5": {
+      "bit_offset": 4,
+      "bit_count": 1,
+      "default_code": "DIN5",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 5 (single bit)"
+    },
+    "DIN6": {
+      "bit_offset": 5,
+      "bit_count": 1,
+      "default_code": "DIN6",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 6 (single bit)"
+    },
+    "DIN7": {
+      "bit_offset": 6,
+      "bit_count": 1,
+      "default_code": "DIN7",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 7 (single bit)"
+    },
+    "DIN8": {
+      "bit_offset": 7,
+      "bit_count": 1,
+      "default_code": "DIN8",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Digital input 8 (single bit)"
+    }
+  },
+  "composite_modes": {
+    "8_DINs": {
+      "bit_offset": 7,
+      "bit_count": 8,
+      "description": "Read all 8 DINs as separate channels"
+    },
+    "255_DINs": {
+      "bit_offset": 7,
+      "bit_count": 8,
+      "bits_as_single_value": true,
+      "description": "Read 8 DINs as a single 8-bit value (0-255)"
+    }
+  },
+  "special_inputs": {
+    "TR_Pulse_NA300": {
+      "bit_offset": 0,
+      "bit_count": 1,
+      "code": "TR",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "MRI TR pulse trigger (NA300)"
+    },
+    "TR_Pulse_NA400": {
+      "bit_offset": 7,
+      "bit_count": 1,
+      "code": "TR",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "MRI TR pulse trigger (NA400, old firmware)"
+    },
+    "Photic_Stim": {
+      "bit_offset": 2,
+      "bit_count": 1,
+      "code": "STIM",
+      "duration_type": "edge",
+      "active_low": true,
+      "description": "Photic stimulator trigger"
+    }
+  },
+  "packet_format": {
+    "format1": {
+      "dins_1_8_byte_offset": 24,
+      "dins_9_16_byte_offset": 25,
+      "net_type_byte_offset": 26,
+      "description": "PacketFormat1 (NA300): DINs in header bytes 24-25"
+    },
+    "format2": {
+      "digital_inputs_offset": 0,
+      "digital_inputs_size": 2,
+      "tr_offset": 2,
+      "description": "PacketFormat2 (NA400/410): 16-bit digital inputs + TR byte"
+    }
+  },
+  "event_keys": {
+    "gidx": "global_count",
+    "cidx": "channel_count"
+  }
+}

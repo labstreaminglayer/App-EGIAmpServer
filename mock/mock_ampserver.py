@@ -25,11 +25,13 @@ AMP_CONFIG = {
 }
 
 class MockAmpServer:
-    def __init__(self, host="0.0.0.0", cmd_port=9877, notify_port=9878, data_port=9879):
+    def __init__(self, host="0.0.0.0", cmd_port=9877, notify_port=9878, data_port=9879,
+                 impedance_mode=False):
         self.host = host
         self.cmd_port = cmd_port
         self.notify_port = notify_port
         self.data_port = data_port
+        self.impedance_mode = impedance_mode
 
         self.running = False
         self.streaming = False
@@ -54,6 +56,8 @@ class MockAmpServer:
         print(f"  Command port:      {self.cmd_port}")
         print(f"  Notification port: {self.notify_port}")
         print(f"  Data port:         {self.data_port}")
+        mode = "impedance" if self.impedance_mode else "eeg"
+        print(f"  Mode:              {mode}")
         print(f"Press Ctrl+C to stop.\n")
 
         try:
@@ -212,7 +216,7 @@ class MockAmpServer:
 
     def _handle_data_client(self, client):
         """Handle data streaming to a client."""
-        client.settimeout(1.0)
+        client.settimeout(10.0)  # Increased timeout to allow for initialization
 
         # Wait for cmd_ListenToAmp command
         try:
@@ -274,14 +278,25 @@ class MockAmpServer:
     def _create_packet_format2(self, packet_counter, t, n_channels):
         """Create a PacketFormat2 binary packet with synthetic data."""
 
-        # Generate synthetic EEG: sine waves at different frequencies per channel
-        eeg_data = []
-        for ch in range(256):
-            freq = 10 + (ch % 40)  # 10-50 Hz sine waves
-            amplitude = 100  # microvolts (will be scaled by client)
-            # Add some noise
-            value = int(amplitude * math.sin(2 * math.pi * freq * t) + random.gauss(0, 10))
-            eeg_data.append(value)
+        ref_monitor = 0
+
+        if self.impedance_mode:
+            # Deterministic counts so compliance math can be verified.
+            base_count = 10000
+            step = 250
+            ref_monitor = base_count
+            eeg_data = [base_count + (ch % 8) * step for ch in range(256)]
+            tr_value = 0xFB  # Injecting current flag (bit 2 cleared)
+        else:
+            # Generate synthetic EEG: sine waves at different frequencies per channel
+            eeg_data = []
+            for ch in range(256):
+                freq = 10 + (ch % 40)  # 10-50 Hz sine waves
+                amplitude = 100  # microvolts (will be scaled by client)
+                # Add some noise
+                value = int(amplitude * math.sin(2 * math.pi * freq * t) + random.gauss(0, 10))
+                eeg_data.append(value)
+            tr_value = 0
 
         # Determine net code based on channel count
         if n_channels == 256:
@@ -300,7 +315,7 @@ class MockAmpServer:
         packet += struct.pack("<H", 0)
 
         # tr (uint8)
-        packet += struct.pack("<B", 0)
+        packet += struct.pack("<B", tr_value)
 
         # pib1_aux (11 bytes)
         packet += b'\x00' * 11
@@ -329,7 +344,7 @@ class MockAmpServer:
         packet += struct.pack("<3i", 0, 0, 0)
 
         # refMonitor, comMonitor, driveMonitor, diagnosticsChannel, currentSense (5 x int32)
-        packet += struct.pack("<5i", 0, 0, 0, 0, 0)
+        packet += struct.pack("<5i", ref_monitor, 0, 0, 0, 0)
 
         # pib1_Data, pib2_Data (32 x int32)
         packet += struct.pack("<32i", *([0] * 32))
@@ -343,6 +358,8 @@ def main():
     parser.add_argument("--cmd-port", type=int, default=9877, help="Command port")
     parser.add_argument("--notify-port", type=int, default=9878, help="Notification port")
     parser.add_argument("--data-port", type=int, default=9879, help="Data port")
+    parser.add_argument("--impedance", action="store_true",
+                        help="Emit deterministic impedance packets")
     args = parser.parse_args()
 
     server = MockAmpServer(
@@ -350,6 +367,7 @@ def main():
         cmd_port=args.cmd_port,
         notify_port=args.notify_port,
         data_port=args.data_port,
+        impedance_mode=args.impedance,
     )
     server.start()
 

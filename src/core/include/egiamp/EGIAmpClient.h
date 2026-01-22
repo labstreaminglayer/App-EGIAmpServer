@@ -17,12 +17,14 @@ namespace egiamp {
 using StatusCallback = std::function<void(const std::string&)>;
 using ErrorCallback = std::function<void(const std::string&)>;
 using ChannelCountCallback = std::function<void(int)>;
+using SensorCallback = std::function<void(NetCode)>;
 
 struct AmplifierDetails {
     std::string serialNumber;
     std::string firmwareVersion;
     AmplifierType amplifierType = AmplifierType::Unknown;
     PacketType packetType = PacketType::Format1;
+    NetCode netCode = NetCode::Unknown;
     int channelCount = 0;
     float scalingFactor = 0.0f;
 };
@@ -46,16 +48,22 @@ public:
     bool startStreaming();
     void stopStreaming();
 
+    // Shutdown the Amp Server process (cmd_Exit)
+    // Warning: This terminates the Amp Server and will disconnect all clients
+    bool shutdownAmpServer();
+
     // Query amp state - returns true if amp is already running, updates detectedSampleRate
     bool queryAmpState();
     int detectedSampleRate() const { return detectedSampleRate_; }
     bool ampWasRunning() const { return ampWasRunning_; }
+    NetCode detectedNetCode() const { return detectedNetCode_; }
 
     const AmplifierDetails& amplifierDetails() const { return details_; }
 
     void setStatusCallback(StatusCallback cb) { statusCallback_ = std::move(cb); }
     void setErrorCallback(ErrorCallback cb) { errorCallback_ = std::move(cb); }
     void setChannelCountCallback(ChannelCountCallback cb) { channelCountCallback_ = std::move(cb); }
+    void setSensorCallback(SensorCallback cb) { sensorCallback_ = std::move(cb); }
 
     void run();
 
@@ -63,6 +71,7 @@ private:
     void emitStatus(const std::string& message);
     void emitError(const std::string& message);
     void emitChannelCount(int count);
+    void emitSensor(NetCode code);
 
     bool queryAmplifierDetails();
     bool isAmplifierStreaming();
@@ -74,9 +83,13 @@ private:
     void readPacketFormat2();
     void processNotifications();
 
+    bool cmd_ImpedanceAcquisitionState();
+    static bool commandCompleted(const std::string& response);
+
     AmpServerConfig config_;
     AmpServerConnection connection_;
     LSLStreamer streamer_;
+    LSLStreamer impedanceStreamer_;
     AmplifierDetails details_;
 
     std::atomic<bool> stopFlag_{false};
@@ -84,6 +97,7 @@ private:
     bool weInitializedAmp_{false};  // Track if we initialized the amp (vs. it was already running)
     bool ampWasRunning_{false};     // Was the amp running when we queried state?
     int detectedSampleRate_{0};     // Sample rate detected from running amp
+    NetCode detectedNetCode_{NetCode::Unknown};  // Sensor net code detected from running amp
     std::unique_ptr<std::thread> readerThread_;
     std::unique_ptr<std::thread> notificationThread_;
 
@@ -94,6 +108,7 @@ private:
     StatusCallback statusCallback_;
     ErrorCallback errorCallback_;
     ChannelCountCallback channelCountCallback_;
+    SensorCallback sensorCallback_;
 };
 
 } // namespace egiamp

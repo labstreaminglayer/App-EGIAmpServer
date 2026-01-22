@@ -80,6 +80,7 @@ void MockAmplifier::setFirmwareVersion(const std::string& version) {
 
 bool MockAmplifier::setNativeRate(int rate) {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Real amplifier validates native rate
     // NA400: 500, 1000, 2000, 4000, 8000
     // NA410: 20000 only
     if (state_.amplifierType == AmplifierType::NA410) {
@@ -96,10 +97,8 @@ bool MockAmplifier::setNativeRate(int rate) {
 
 bool MockAmplifier::setDecimatedRate(int rate) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // NA400: 250, 500, 1000
-    if (rate != 250 && rate != 500 && rate != 1000) {
-        return false;
-    }
+    // Real amplifier accepts any rate value without validation
+    // Valid rates: 250, 500, 1000
     state_.decimatedRate = rate;
     return true;
 }

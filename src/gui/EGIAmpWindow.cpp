@@ -23,6 +23,8 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
             this, &EGIAmpWindow::loadConfigDialog);
     connect(ui->actionSave_Configuration, &QAction::triggered,
             this, &EGIAmpWindow::saveConfigDialog);
+    connect(ui->actionShutdown_Amp_Server, &QAction::triggered,
+            this, &EGIAmpWindow::shutdownAmpServer);
 
     // Link button
     connect(ui->linkButton, &QPushButton::clicked, this, &EGIAmpWindow::linkAmpserver);
@@ -30,6 +32,9 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     // Signal connections for cross-thread communication
     connect(this, &EGIAmpWindow::appendStatusMessage,
             ui->statusBox, &QPlainTextEdit::appendPlainText,
+            Qt::QueuedConnection);
+    connect(this, &EGIAmpWindow::sensorLayoutUpdated,
+            ui->sensorLayout, &QLineEdit::setText,
             Qt::QueuedConnection);
     connect(this, &EGIAmpWindow::error, this, &EGIAmpWindow::displayError,
             Qt::QueuedConnection);
@@ -58,6 +63,10 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
 
     client_->setChannelCountCallback([this](int count) {
         emit channelCountUpdated(count);
+    });
+
+    client_->setSensorCallback([this](egiamp::NetCode code) {
+        emit sensorLayoutUpdated(QString::fromUtf8(egiamp::netCodeName(code)));
     });
 }
 
@@ -138,6 +147,7 @@ void EGIAmpWindow::linkAmpserver() {
         client_->disconnect();
         emit fieldsEnabled(true);
         emit setLinkButtonText("Link");
+        emit sensorLayoutUpdated("");
     } else {
         // Link
         auto config = getConfigFromUI();
@@ -161,6 +171,9 @@ void EGIAmpWindow::linkAmpserver() {
             } else {
                 emit appendStatusMessage("Amplifier already running (sample rate detection failed, using configured rate)");
             }
+            // Update sensor layout from detected net code
+            egiamp::NetCode netCode = client_->detectedNetCode();
+            emit sensorLayoutUpdated(QString::fromUtf8(egiamp::netCodeName(netCode)));
         }
 
         if (!client_->startStreaming()) {
@@ -180,9 +193,58 @@ void EGIAmpWindow::displayError(QString description) {
 void EGIAmpWindow::unlockUI() {
     emit setLinkButtonText("Link");
     emit fieldsEnabled(true);
+    ui->actionShutdown_Amp_Server->setEnabled(true);
 }
 
 void EGIAmpWindow::lockUI() {
     emit setLinkButtonText("Unlink");
     emit fieldsEnabled(false);
+    ui->actionShutdown_Amp_Server->setEnabled(false);
+}
+
+void EGIAmpWindow::shutdownAmpServer() {
+    // Show warning dialog
+    QMessageBox::StandardButton reply = QMessageBox::warning(
+        this,
+        "Shutdown Amp Server",
+        "WARNING: This will terminate the Amp Server process.\n\n"
+        "All clients connected to the amplifier will be disconnected, "
+        "which may disrupt ongoing recordings or other applications.\n\n"
+        "Are you sure you want to proceed?",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+
+    // Connect to send the shutdown command
+    auto config = getConfigFromUI();
+    client_->setConfig(config);
+    if (!client_->connect()) {
+        QMessageBox::critical(this, "Error",
+            "Could not connect to AmpServer. Please check network settings.",
+            QMessageBox::Ok);
+        return;
+    }
+
+    // Send shutdown command
+    emit appendStatusMessage("Sending shutdown command to Amp Server...");
+    bool success = client_->shutdownAmpServer();
+
+    // Disconnect (connection will be lost anyway after shutdown)
+    client_->disconnect();
+
+    if (success) {
+        QMessageBox::information(this, "Amp Server Shutdown",
+            "Shutdown command sent successfully.\n"
+            "The Amp Server process should now be terminated.",
+            QMessageBox::Ok);
+    } else {
+        QMessageBox::warning(this, "Amp Server Shutdown",
+            "Failed to send shutdown command.\n"
+            "The Amp Server may already be stopped or unreachable.",
+            QMessageBox::Ok);
+    }
 }
