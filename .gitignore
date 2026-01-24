@@ -16,6 +16,7 @@ qrc_*.cpp
 /.vscode/
 *.swp
 *~
+settings.local.json
 
 # macOS
 .DS_Store

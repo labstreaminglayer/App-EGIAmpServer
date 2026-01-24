@@ -3,9 +3,10 @@
 ## Usage
 
 This program should work with any amplifier that works with the AmpServer produced by EGI (http://www.egi.com/).
-All communication with the amplifier happens through the Amp Server Pro SDK, [documented here](https://www.egi.com/images/stories/manuals/amp-server-pro-sdk-3-0-network-apis-user-guide-rev-01.pdf).
+All communication with the amplifier happens through the Amp Server's low-level Network Protocol. Amp Server Pro SDK is [documented here](https://www.egi.com/images/stories/manuals/amp-server-pro-sdk-3-0-user-guide-rev-01.pdf).
+ and the [network API here](https://www.egi.com/images/stories/manuals/amp-server-pro-sdk-3-0-network-apis-user-guide-rev-01.pdf).
 
-  * Make sure that your AmpServer is running and can correctly record from its connected amplifier(s). To connect to the Amp Server you need to purchase the Amp Server Pro SDK.
+  * Make sure that your AmpServer is running and can correctly record from its connected amplifier(s).
 
   * Start the EGIAmpServer app. You should see a window like the following.
 > > ![egiampserver.png](egiampserver.png)
