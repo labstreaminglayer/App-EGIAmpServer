@@ -88,15 +88,12 @@ void DataStreamGenerator::readFromClient(std::shared_ptr<asio::ip::tcp::socket> 
                 std::cout << "[DataStreamGenerator] Received: " << line << std::endl;
 
                 // Parse cmd_ListenToAmp or cmd_StopListeningToAmp
+                // Note: Real amp server doesn't send text responses on data port,
+                // it just starts/stops streaming binary data
                 if (line.find("cmd_ListenToAmp") != std::string::npos) {
                     listening_ = true;
-                    // Send success response
-                    std::string response = "(sendCommand_return (status complete))\n";
-                    asio::write(*socket, asio::buffer(response));
                 } else if (line.find("cmd_StopListeningToAmp") != std::string::npos) {
                     listening_ = false;
-                    std::string response = "(sendCommand_return (status complete))\n";
-                    asio::write(*socket, asio::buffer(response));
                 }
 
                 readFromClient(socket);

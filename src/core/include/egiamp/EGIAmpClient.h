@@ -57,6 +57,7 @@ public:
     int detectedSampleRate() const { return detectedSampleRate_; }
     bool ampWasRunning() const { return ampWasRunning_; }
     NetCode detectedNetCode() const { return detectedNetCode_; }
+    int physioConnectionStatus() const { return physioConnectionStatus_; }
 
     const AmplifierDetails& amplifierDetails() const { return details_; }
 
@@ -98,6 +99,7 @@ private:
     bool ampWasRunning_{false};     // Was the amp running when we queried state?
     int detectedSampleRate_{0};     // Sample rate detected from running amp
     NetCode detectedNetCode_{NetCode::Unknown};  // Sensor net code detected from running amp
+    int physioConnectionStatus_{0};  // 0=none, 1=port1(16ch), 2=port2(16ch), 3=both(32ch)
     std::unique_ptr<std::thread> readerThread_;
     std::unique_ptr<std::thread> notificationThread_;
 

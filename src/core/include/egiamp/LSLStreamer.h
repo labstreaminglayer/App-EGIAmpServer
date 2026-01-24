@@ -22,8 +22,9 @@ public:
     LSLStreamer(const LSLStreamer&) = delete;
     LSLStreamer& operator=(const LSLStreamer&) = delete;
 
-    void createOutlet(const std::string& streamName, int channelCount,
-                      int sampleRate, const std::string& hostname,
+    void createOutlet(const std::string& streamName, int eegChannelCount,
+                      int physioChannelCount, int sampleRate,
+                      const std::string& hostname,
                       const AmplifierDetails& details);
 
     void createImpedanceOutlet(const std::string& streamName, int channelCount,

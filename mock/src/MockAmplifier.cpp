@@ -418,10 +418,31 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     packet.diagnosticsChannel = 0;
     packet.currentSense = 0;
 
-    // PIB data
+    // PIB data - generate test signals if physio is connected
+    // Physio scaling factors: channels 1-8 use -0.00111758708, channels 9-16 use +0.00111758708
+    constexpr double PHYSIO_SCALE_1_8 = -0.00111758708;
+    constexpr double PHYSIO_SCALE_9_16 = 0.00111758708;
+
     for (int i = 0; i < 16; ++i) {
-        packet.pib1_Data[i] = 0;
-        packet.pib2_Data[i] = 0;
+        double physioScale = (i < 8) ? PHYSIO_SCALE_1_8 : PHYSIO_SCALE_9_16;
+
+        if (state_.physioConnectionStatus & 0x01) {
+            // Port 1: Generate 7 Hz sine wave with channel-specific phase offset
+            double pib1Freq = 7.0;
+            double pib1Value = 50.0 * std::sin(2.0 * M_PI * pib1Freq * phase_ + i * 0.2);
+            packet.pib1_Data[i] = static_cast<int32_t>(pib1Value / physioScale);
+        } else {
+            packet.pib1_Data[i] = 0;
+        }
+
+        if (state_.physioConnectionStatus & 0x02) {
+            // Port 2: Generate 11 Hz sine wave with channel-specific phase offset
+            double pib2Freq = 11.0;
+            double pib2Value = 50.0 * std::sin(2.0 * M_PI * pib2Freq * phase_ + i * 0.2);
+            packet.pib2_Data[i] = static_cast<int32_t>(pib2Value / physioScale);
+        } else {
+            packet.pib2_Data[i] = 0;
+        }
     }
 
     ++state_.packetCounter;

@@ -108,8 +108,9 @@ void NotificationHandler::sendClientConnected(int clientId) {
 }
 
 void NotificationHandler::sendPhysioConnectionStatus(int status) {
+    // Format matches real amp: (notification ntn_PhysioConnectionStatus <seq_id> 0 +<status>)
     std::ostringstream oss;
-    oss << "(notification (physio_connection_status " << status << "))";
+    oss << "(notification ntn_PhysioConnectionStatus " << ++notificationSeqId_ << " 0 +" << status << ")";
     sendNotification(oss.str());
 }
 

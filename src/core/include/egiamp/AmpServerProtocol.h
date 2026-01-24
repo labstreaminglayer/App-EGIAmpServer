@@ -141,6 +141,11 @@ inline float getScalingFactor(AmplifierType type) {
     }
 }
 
+// Physio16 scaling factors (from EGI documentation)
+// Channels 1-8 use negative scaling, channels 9-16 use positive scaling
+constexpr float PHYSIO_SCALING_1_8 = -0.00111758708f;   // PIB channels 1-8
+constexpr float PHYSIO_SCALING_9_16 = 0.00111758708f;   // PIB channels 9-16
+
 inline const char* amplifierTypeName(AmplifierType type) {
     switch (type) {
         case AmplifierType::NA300:

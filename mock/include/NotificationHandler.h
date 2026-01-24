@@ -46,6 +46,7 @@ private:
     std::mutex clientsMutex_;
     std::set<std::shared_ptr<asio::ip::tcp::socket>> clients_;
     int nextClientId_ = 1;
+    int notificationSeqId_ = 0;  // Sequence ID for notifications
 };
 
 } // namespace mock

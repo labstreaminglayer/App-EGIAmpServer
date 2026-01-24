@@ -83,20 +83,23 @@ std::string getCapName(NetCode netCode) {
 
 } // anonymous namespace
 
-void LSLStreamer::createOutlet(const std::string& streamName, int channelCount,
-                               int sampleRate, const std::string& hostname,
+void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCount,
+                               int physioChannelCount, int sampleRate,
+                               const std::string& hostname,
                                const AmplifierDetails& details) {
     // Close existing outlet if any
     closeOutlet();
+
+    int totalChannelCount = eegChannelCount + physioChannelCount;
 
     // Create stream info with unique source ID
     // Include all parameters that make streams incompatible so clients
     // won't auto-reconnect when these change
     std::string sourceId = "EGI_" + hostname +
-                           "_ch" + std::to_string(channelCount) +
+                           "_ch" + std::to_string(totalChannelCount) +
                            "_sr" + std::to_string(sampleRate) +
                            "_f32";
-    lsl::stream_info info(streamName, "EEG", channelCount,
+    lsl::stream_info info(streamName, "EEG", totalChannelCount,
                           static_cast<double>(sampleRate),
                           lsl::cf_float32, sourceId);
 
@@ -161,13 +164,14 @@ void LSLStreamer::createOutlet(const std::string& streamName, int channelCount,
     // =========================================================================
     lsl::xml_element channels = desc.append_child("channels");
 
-    for (int i = 0; i < channelCount; i++) {
+    // EEG channels
+    for (int i = 0; i < eegChannelCount; i++) {
         lsl::xml_element ch = channels.append_child("channel");
 
         // Channel label: E1, E2, ... E256, or Cz for last channel if extended net
         std::string label;
-        if (i == channelCount - 1 && (channelCount == 33 || channelCount == 65 ||
-                                       channelCount == 129 || channelCount == 257)) {
+        if (i == eegChannelCount - 1 && (eegChannelCount == 33 || eegChannelCount == 65 ||
+                                         eegChannelCount == 129 || eegChannelCount == 257)) {
             label = "Cz";
         } else {
             label = "E" + std::to_string(i + 1);
@@ -177,6 +181,23 @@ void LSLStreamer::createOutlet(const std::string& streamName, int channelCount,
         ch.append_child_value("unit", "microvolts");
 
         // Scaling factor (raw to microvolts)
+        if (details.scalingFactor > 0) {
+            ch.append_child_value("scaling_factor",
+                                  std::to_string(details.scalingFactor).c_str());
+        }
+    }
+
+    // Physio16 (PIB) channels
+    for (int i = 0; i < physioChannelCount; i++) {
+        lsl::xml_element ch = channels.append_child("channel");
+
+        // Channel label: PIB1, PIB2, ... PIB32
+        std::string label = "PIB" + std::to_string(i + 1);
+        ch.append_child_value("label", label.c_str());
+        ch.append_child_value("type", "AUX");
+        ch.append_child_value("unit", "microvolts");
+
+        // Scaling factor (raw to microvolts) - same as EEG
         if (details.scalingFactor > 0) {
             ch.append_child_value("scaling_factor",
                                   std::to_string(details.scalingFactor).c_str());

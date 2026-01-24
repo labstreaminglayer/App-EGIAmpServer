@@ -398,7 +398,8 @@ std::string CommandHandler::cmdGetPhysioConnectionStatus(int64_t ampId, int16_t 
     if (notificationHandler_) {
         notificationHandler_->sendPhysioConnectionStatus(status);
     }
-    return successResponse();
+    // Include status in response for synchronous access
+    return responseWithData("(physio_connection_status " + std::to_string(status) + ")");
 }
 
 std::string CommandHandler::cmdNumberOfAmps(int64_t ampId, int16_t channel, const std::string& value) {

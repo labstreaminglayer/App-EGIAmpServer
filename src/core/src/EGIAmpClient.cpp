@@ -367,6 +367,43 @@ bool EGIAmpClient::startStreaming() {
     // Subscribe to notifications
     connection_.sendCommand("cmd_ReceiveNotifications", config_.amplifierId, 0, "0");
 
+    // Query Physio16 connection status
+    connection_.sendCommand("cmd_GetPhysioConnectionStatus", config_.amplifierId, 0, "0");
+
+    // Read notifications until we find physio status or timeout
+    // (there may be other notifications like client_connected in the queue)
+    physioConnectionStatus_ = 0;
+    try {
+        auto& notifStream = connection_.notificationStream();
+        std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
+            char notifBuffer[4096];
+            notifStream.getline(notifBuffer, sizeof(notifBuffer));
+
+            std::string notification(notifBuffer);
+            std::smatch match;
+            if (std::regex_search(notification, match, statusRegex)) {
+                physioConnectionStatus_ = std::stoi(match[1].str());
+                emitStatus("Physio16 connection status: " + std::to_string(physioConnectionStatus_) +
+                           " (" + (physioConnectionStatus_ == 0 ? "none" :
+                                   physioConnectionStatus_ == 1 ? "port 1 - 16 channels" :
+                                   physioConnectionStatus_ == 2 ? "port 2 - 16 channels" :
+                                   "both ports - 32 channels") + ")\n");
+                break;
+            }
+            // Not the physio notification, try again
+        }
+
+        if (physioConnectionStatus_ == 0) {
+            emitStatus("Physio16: no device detected\n");
+        }
+    } catch (...) {
+        emitStatus("Physio16: query timed out, assuming no device\n");
+        physioConnectionStatus_ = 0;
+    }
+
     // Start notification thread
     notificationThread_ = std::make_unique<std::thread>([this]() {
         try {
@@ -510,11 +547,21 @@ void EGIAmpClient::readPacketFormat2() {
 
                 emitStatus(std::string("Sensor: ") + netCodeName(details_.netCode) + "\n");
                 emitSensor(details_.netCode);
-                emitChannelCount(nChannels);
 
-                // Create LSL outlet for EEG
+                // Use the pre-queried Physio16 connection status
+                // (queried in startStreaming() before notification thread started)
+                int physioChannelCount = 0;
+                if (physioConnectionStatus_ == 1 || physioConnectionStatus_ == 2) {
+                    physioChannelCount = 16;
+                } else if (physioConnectionStatus_ == 3) {
+                    physioChannelCount = 32;
+                }
+
+                emitChannelCount(nChannels + physioChannelCount);
+
+                // Create LSL outlet for EEG (+ Physio if connected)
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                streamer_.createOutlet(streamName, nChannels,
+                streamer_.createOutlet(streamName, nChannels, physioChannelCount,
                                        config_.sampleRate, config_.serverAddress, details_);
 
                 // Create LSL outlet for impedance if enabled
@@ -583,7 +630,9 @@ void EGIAmpClient::readPacketFormat2() {
                             // Recreate LSL outlets with new rate
                             streamer_.closeOutlet();
                             std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                            streamer_.createOutlet(streamName, nChannels,
+                            int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
+                                                (physioConnectionStatus_ > 0) ? 16 : 0;
+                            streamer_.createOutlet(streamName, nChannels, physioChCount,
                                                    config_.sampleRate, config_.serverAddress, details_);
 
                             // Recreate impedance outlet if enabled
@@ -616,11 +665,40 @@ void EGIAmpClient::readPacketFormat2() {
 
             // Convert and push sample to EEG stream (PacketFormat2 is little endian natively)
             std::vector<float> eegSamples;
-            eegSamples.reserve(nChannels);
+            int physioChannels = (physioConnectionStatus_ == 3) ? 32 :
+                                 (physioConnectionStatus_ > 0) ? 16 : 0;
+            eegSamples.reserve(nChannels + physioChannels);
             for (int ch = 0; ch < nChannels; ch++) {
                 eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
                                      details_.scalingFactor);
             }
+
+            // Add PIB1 channels (if port 1 connected: status 1 or 3)
+            // Channels 1-8 use negative scaling, 9-16 use positive scaling
+            if (physioConnectionStatus_ & 0x01) {
+                for (int ch = 0; ch < 8; ch++) {
+                    eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
+                                         PHYSIO_SCALING_1_8);
+                }
+                for (int ch = 8; ch < 16; ch++) {
+                    eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
+                                         PHYSIO_SCALING_9_16);
+                }
+            }
+
+            // Add PIB2 channels (if port 2 connected: status 2 or 3)
+            // Channels 1-8 use negative scaling, 9-16 use positive scaling
+            if (physioConnectionStatus_ & 0x02) {
+                for (int ch = 0; ch < 8; ch++) {
+                    eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
+                                         PHYSIO_SCALING_1_8);
+                }
+                for (int ch = 8; ch < 16; ch++) {
+                    eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
+                                         PHYSIO_SCALING_9_16);
+                }
+            }
+
             streamer_.pushSample(eegSamples);
 
             // Push impedance data if in impedance mode and current is injecting
@@ -698,9 +776,9 @@ void EGIAmpClient::readPacketFormat1() {
                 emitSensor(details_.netCode);
                 emitChannelCount(nChannels);
 
-                // Create LSL outlet
+                // Create LSL outlet (no Physio16 support for PacketFormat1)
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                streamer_.createOutlet(streamName, nChannels,
+                streamer_.createOutlet(streamName, nChannels, 0,
                                        config_.sampleRate, config_.serverAddress, details_);
             }
 
