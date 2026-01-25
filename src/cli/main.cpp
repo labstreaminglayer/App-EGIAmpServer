@@ -32,6 +32,7 @@ void printUsage(const char* programName) {
               << "  --amp-id <id>      Amplifier ID (default: 0)\n"
               << "  --sample-rate <hz> Sample rate (default: 1000)\n"
               << "  --impedance        Enable impedance testing mode (default: disabled)\n"
+              << "  --native-format    Transmit raw int32 ADC counts instead of float microvolts\n"
               << "  --shutdown         Shutdown the Amp Server (terminates all connections)\n"
               << "  --help             Show this help message\n";
 }
@@ -62,6 +63,8 @@ int main(int argc, char* argv[]) {
             config.sampleRate = std::stoi(argv[++i]);
         } else if (arg == "--impedance") {
             config.impedance = true;
+        } else if (arg == "--native-format") {
+            config.nativeFormat = true;
         } else if (arg == "--shutdown") {
             shutdownMode = true;
         } else {
@@ -141,6 +144,7 @@ int main(int argc, char* argv[]) {
               << "  Amplifier ID: " << config.amplifierId << "\n"
               << "  Sample Rate: " << config.sampleRate << " Hz\n"
               << "  Impedance Mode: " << (config.impedance ? "enabled" : "disabled") << "\n"
+              << "  Data Format: " << (config.nativeFormat ? "native (int32 counts)" : "microvolts (float32)") << "\n"
               << "Press Ctrl+C to stop.\n\n";
 
     // Connect and stream

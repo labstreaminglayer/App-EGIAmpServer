@@ -562,7 +562,8 @@ void EGIAmpClient::readPacketFormat2() {
                 // Create LSL outlet for EEG (+ Physio if connected)
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
                 streamer_.createOutlet(streamName, nChannels, physioChannelCount,
-                                       config_.sampleRate, config_.serverAddress, details_);
+                                       config_.sampleRate, config_.serverAddress, details_,
+                                       config_.nativeFormat);
 
                 // Create LSL outlet for impedance if enabled
                 if (config_.impedance) {
@@ -633,7 +634,8 @@ void EGIAmpClient::readPacketFormat2() {
                             int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
                                                 (physioConnectionStatus_ > 0) ? 16 : 0;
                             streamer_.createOutlet(streamName, nChannels, physioChCount,
-                                                   config_.sampleRate, config_.serverAddress, details_);
+                                                   config_.sampleRate, config_.serverAddress, details_,
+                                                   config_.nativeFormat);
 
                             // Recreate impedance outlet if enabled
                             if (config_.impedance) {
@@ -663,43 +665,72 @@ void EGIAmpClient::readPacketFormat2() {
                 lastPacketCounterWithTimeStamp_ = packet.packetCounter;
             }
 
-            // Convert and push sample to EEG stream (PacketFormat2 is little endian natively)
-            std::vector<float> eegSamples;
+            // Push sample to EEG stream (PacketFormat2 is little endian natively)
             int physioChannels = (physioConnectionStatus_ == 3) ? 32 :
                                  (physioConnectionStatus_ > 0) ? 16 : 0;
-            eegSamples.reserve(nChannels + physioChannels);
-            for (int ch = 0; ch < nChannels; ch++) {
-                eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
-                                     details_.scalingFactor);
-            }
 
-            // Add PIB1 channels (if port 1 connected: status 1 or 3)
-            // Channels 1-8 use negative scaling, 9-16 use positive scaling
-            if (physioConnectionStatus_ & 0x01) {
-                for (int ch = 0; ch < 8; ch++) {
-                    eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
-                                         PHYSIO_SCALING_1_8);
-                }
-                for (int ch = 8; ch < 16; ch++) {
-                    eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
-                                         PHYSIO_SCALING_9_16);
-                }
-            }
+            if (config_.nativeFormat) {
+                // Native format: push raw int32 ADC counts
+                std::vector<int32_t> rawSamples;
+                rawSamples.reserve(nChannels + physioChannels);
 
-            // Add PIB2 channels (if port 2 connected: status 2 or 3)
-            // Channels 1-8 use negative scaling, 9-16 use positive scaling
-            if (physioConnectionStatus_ & 0x02) {
-                for (int ch = 0; ch < 8; ch++) {
-                    eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
-                                         PHYSIO_SCALING_1_8);
+                for (int ch = 0; ch < nChannels; ch++) {
+                    rawSamples.push_back(packet.eegData[ch]);
                 }
-                for (int ch = 8; ch < 16; ch++) {
-                    eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
-                                         PHYSIO_SCALING_9_16);
-                }
-            }
 
-            streamer_.pushSample(eegSamples);
+                // Add PIB1 channels (if port 1 connected: status 1 or 3)
+                if (physioConnectionStatus_ & 0x01) {
+                    for (int ch = 0; ch < 16; ch++) {
+                        rawSamples.push_back(packet.pib1_Data[ch]);
+                    }
+                }
+
+                // Add PIB2 channels (if port 2 connected: status 2 or 3)
+                if (physioConnectionStatus_ & 0x02) {
+                    for (int ch = 0; ch < 16; ch++) {
+                        rawSamples.push_back(packet.pib2_Data[ch]);
+                    }
+                }
+
+                streamer_.pushSampleInt32(rawSamples);
+            } else {
+                // Default: convert to float microvolts
+                std::vector<float> eegSamples;
+                eegSamples.reserve(nChannels + physioChannels);
+
+                for (int ch = 0; ch < nChannels; ch++) {
+                    eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
+                                         details_.scalingFactor);
+                }
+
+                // Add PIB1 channels (if port 1 connected: status 1 or 3)
+                // Channels 1-8 use negative scaling, 9-16 use positive scaling
+                if (physioConnectionStatus_ & 0x01) {
+                    for (int ch = 0; ch < 8; ch++) {
+                        eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
+                                             PHYSIO_SCALING_1_8);
+                    }
+                    for (int ch = 8; ch < 16; ch++) {
+                        eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
+                                             PHYSIO_SCALING_9_16);
+                    }
+                }
+
+                // Add PIB2 channels (if port 2 connected: status 2 or 3)
+                // Channels 1-8 use negative scaling, 9-16 use positive scaling
+                if (physioConnectionStatus_ & 0x02) {
+                    for (int ch = 0; ch < 8; ch++) {
+                        eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
+                                             PHYSIO_SCALING_1_8);
+                    }
+                    for (int ch = 8; ch < 16; ch++) {
+                        eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
+                                             PHYSIO_SCALING_9_16);
+                    }
+                }
+
+                streamer_.pushSample(eegSamples);
+            }
 
             // Push impedance data if in impedance mode and current is injecting
             if (config_.impedance && impedanceStreamer_.hasOutlet()) {
@@ -777,9 +808,12 @@ void EGIAmpClient::readPacketFormat1() {
                 emitChannelCount(nChannels);
 
                 // Create LSL outlet (no Physio16 support for PacketFormat1)
+                // Note: PacketFormat1 (NA300) already provides float data, so nativeFormat
+                // doesn't apply - we always use float for Format1
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
                 streamer_.createOutlet(streamName, nChannels, 0,
-                                       config_.sampleRate, config_.serverAddress, details_);
+                                       config_.sampleRate, config_.serverAddress, details_,
+                                       false);  // Format1 is always float
             }
 
             // Convert endianness and push sample

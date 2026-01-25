@@ -15,6 +15,7 @@ struct AmpServerConfig {
     int amplifierId = 0;
     int sampleRate = 1000;
     bool impedance = false;
+    bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
 
     static AmpServerConfig loadFromFile(const std::string& filename);
     void saveToFile(const std::string& filename) const;

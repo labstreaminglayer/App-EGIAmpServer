@@ -86,22 +86,26 @@ std::string getCapName(NetCode netCode) {
 void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCount,
                                int physioChannelCount, int sampleRate,
                                const std::string& hostname,
-                               const AmplifierDetails& details) {
+                               const AmplifierDetails& details,
+                               bool nativeFormat) {
     // Close existing outlet if any
     closeOutlet();
 
+    nativeFormat_ = nativeFormat;
     int totalChannelCount = eegChannelCount + physioChannelCount;
 
     // Create stream info with unique source ID
     // Include all parameters that make streams incompatible so clients
     // won't auto-reconnect when these change
+    std::string formatSuffix = nativeFormat ? "_i32" : "_f32";
     std::string sourceId = "EGI_" + hostname +
                            "_ch" + std::to_string(totalChannelCount) +
                            "_sr" + std::to_string(sampleRate) +
-                           "_f32";
+                           formatSuffix;
+    lsl::channel_format_t channelFormat = nativeFormat ? lsl::cf_int32 : lsl::cf_float32;
     lsl::stream_info info(streamName, "EEG", totalChannelCount,
                           static_cast<double>(sampleRate),
-                          lsl::cf_float32, sourceId);
+                          channelFormat, sourceId);
 
     // Get the description root
     lsl::xml_element desc = info.desc();
@@ -178,12 +182,16 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         }
         ch.append_child_value("label", label.c_str());
         ch.append_child_value("type", "EEG");
-        ch.append_child_value("unit", "microvolts");
 
-        // Scaling factor (raw to microvolts)
-        if (details.scalingFactor > 0) {
-            ch.append_child_value("scaling_factor",
-                                  std::to_string(details.scalingFactor).c_str());
+        if (nativeFormat) {
+            ch.append_child_value("unit", "counts");
+            // Conversion factor: multiply by this to get microvolts
+            if (details.scalingFactor != 0) {
+                ch.append_child_value("conversion",
+                                      std::to_string(details.scalingFactor).c_str());
+            }
+        } else {
+            ch.append_child_value("unit", "microvolts");
         }
     }
 
@@ -195,12 +203,17 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         std::string label = "PIB" + std::to_string(i + 1);
         ch.append_child_value("label", label.c_str());
         ch.append_child_value("type", "AUX");
-        ch.append_child_value("unit", "microvolts");
 
-        // Scaling factor (raw to microvolts) - same as EEG
-        if (details.scalingFactor > 0) {
-            ch.append_child_value("scaling_factor",
-                                  std::to_string(details.scalingFactor).c_str());
+        if (nativeFormat) {
+            ch.append_child_value("unit", "counts");
+            // PIB channels 1-8 use negative scaling, 9-16 use positive scaling
+            // Channel index within each PIB port: 0-7 negative, 8-15 positive
+            int portChannel = i % 16;
+            float conversion = (portChannel < 8) ? PHYSIO_SCALING_1_8 : PHYSIO_SCALING_9_16;
+            ch.append_child_value("conversion",
+                                  std::to_string(conversion).c_str());
+        } else {
+            ch.append_child_value("unit", "microvolts");
         }
     }
 
@@ -283,6 +296,12 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
 }
 
 void LSLStreamer::pushSample(const std::vector<float>& sample) {
+    if (outlet_) {
+        outlet_->push_sample(sample);
+    }
+}
+
+void LSLStreamer::pushSampleInt32(const std::vector<int32_t>& sample) {
     if (outlet_) {
         outlet_->push_sample(sample);
     }

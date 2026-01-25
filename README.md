@@ -35,6 +35,7 @@ The CLI provides a lightweight alternative to the GUI:
 - `--amp-id <id>` - Amplifier ID (default: 0)
 - `--sample-rate <hz>` - Sample rate in Hz (default: 1000)
 - `--impedance` - Enable impedance testing mode
+- `--native-format` - Transmit raw int32 ADC counts instead of float microvolts
 - `--shutdown` - Shutdown the Amp Server (terminates all connections)
 - `--help` - Show help message
 
@@ -45,6 +46,9 @@ The CLI provides a lightweight alternative to the GUI:
 
 # With impedance testing
 ./EGIAmpServerCLI --address 10.10.10.51 --impedance
+
+# With native format (int32 ADC counts)
+./EGIAmpServerCLI --address 10.10.10.51 --native-format
 ```
 
 ## Impedance Testing
@@ -87,8 +91,16 @@ Currently not implemented in GUI. Use CLI or config file.
 - **Type**: `EEG`
 - **Rate**: Configured sample rate (e.g., 1000 Hz)
 - **Channels**: Depends on sensor net (32-256 channels)
-- **Unit**: microvolts
+- **Format**: `float32` (default) or `int32` (with `--native-format`)
+- **Unit**: `microvolts` (default) or `counts` (with `--native-format`)
 - **Behavior**: Streams continuously with raw amplifier data (includes test signals during impedance mode)
+
+##### Native Format Mode
+When `--native-format` is enabled:
+- Data is transmitted as raw int32 ADC counts instead of float microvolts
+- Channel metadata includes a `conversion` field with the scaling factor
+- Downstream consumers can convert to microvolts: `microvolts = counts × conversion`
+- This mode is useful for applications that need maximum precision or want to handle scaling themselves (e.g., NWB export)
 
 #### 2. Impedance Stream
 - **Name**: `EGI NetAmp <amp_id> Impedance`
