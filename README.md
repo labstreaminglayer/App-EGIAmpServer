@@ -33,7 +33,7 @@ The CLI provides a lightweight alternative to the GUI:
 - `--cmd-port <port>` - Command port (default: 9877)
 - `--data-port <port>` - Data port (default: 9879)
 - `--amp-id <id>` - Amplifier ID (default: 0)
-- `--sample-rate <hz>` - Sample rate in Hz (default: 1000)
+- `--sample-rate <hz>` - Sample rate in Hz (default: 1000). Forces amplifier to this rate if already running at a different rate. Valid rates: 250, 500, 1000 (decimated) or 2000, 4000, 8000 (native).
 - `--impedance` - Enable impedance testing mode
 - `--native-format` - Transmit raw int32 ADC counts instead of float microvolts
 - `--shutdown` - Shutdown the Amp Server (terminates all connections)
@@ -198,6 +198,60 @@ if imp_sample:
 # EEG data continues normally
 eeg_sample, timestamp = eeg_inlet.pull_sample()
 ```
+
+## Digital Inputs (DIN)
+
+The EEG stream includes a `DIN` channel as the last channel, containing the raw 16-bit digital input value from the amplifier's digital I/O port.
+
+### Channel Details
+
+- **Label**: `DIN`
+- **Type**: `DIN`
+- **Unit**: `uint16`
+- **Position**: Last channel in the stream (after EEG and any Physio16 channels)
+- **Value range**: 0-65535 (0x0000-0xFFFF)
+
+### Accessing Individual Bits
+
+The DIN value is transmitted as a float (or int32 in native format), but all 16-bit values are exactly preserved. To access individual bits:
+
+```python
+import pylsl
+
+streams = pylsl.resolve_byprop('type', 'EEG', timeout=5)
+inlet = pylsl.StreamInlet(streams[0])
+
+sample, timestamp = inlet.pull_sample()
+din_value = int(sample[-1])  # Last channel, convert to integer
+
+# Extract individual bits (DIN1-DIN16)
+din1 = (din_value >> 0) & 1   # Bit 0
+din2 = (din_value >> 1) & 1   # Bit 1
+din3 = (din_value >> 2) & 1   # Bit 2
+# ... etc
+
+# Or extract all 16 bits
+bits = [(din_value >> i) & 1 for i in range(16)]
+print(f"DIN1-16: {bits}")
+```
+
+### Timing Considerations
+
+The amplifier's internal DIN ADC samples at a fixed 1 kHz rate, regardless of the EEG sample rate:
+
+| EEG Sample Rate | DIN Behavior | Effective DIN Resolution |
+|-----------------|--------------|--------------------------|
+| 250 Hz          | Decimated (1 in 4 samples) | 4 ms |
+| 500 Hz          | Decimated (1 in 2 samples) | 2 ms |
+| 1000 Hz         | 1:1 mapping | 1 ms |
+| 2000 Hz         | Duplicated (2 per DIN sample) | 1 ms |
+| 4000 Hz         | Duplicated (4 per DIN sample) | 1 ms |
+
+**Recommendation**: Use a sample rate of 1000 Hz or higher if precise DIN timing is required. At lower sample rates, fast TTL pulses (< 4ms at 250 Hz) may be missed.
+
+### Hardware Notes
+
+The NA400/NA410 amplifiers have a 16-bit digital I/O port. By default, all bits are configured for input. The `cmd_SetDigitalInOutDirection` command can configure specific bits for output if needed (consult EGI documentation).
 
 # Acknowledgements
 This application was written to behave near-identically to the BCI2000 AmpServer module that was originally created by EGI.

@@ -557,11 +557,12 @@ void EGIAmpClient::readPacketFormat2() {
                     physioChannelCount = 32;
                 }
 
-                emitChannelCount(nChannels + physioChannelCount);
+                constexpr int dinChannelCount = 1;  // Single channel with raw 16-bit value
+                emitChannelCount(nChannels + physioChannelCount + dinChannelCount);
 
-                // Create LSL outlet for EEG (+ Physio if connected)
+                // Create LSL outlet for EEG (+ Physio if connected + DIN)
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                streamer_.createOutlet(streamName, nChannels, physioChannelCount,
+                streamer_.createOutlet(streamName, nChannels, physioChannelCount, dinChannelCount,
                                        config_.sampleRate, config_.serverAddress, details_,
                                        config_.nativeFormat);
 
@@ -633,7 +634,8 @@ void EGIAmpClient::readPacketFormat2() {
                             std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
                             int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
                                                 (physioConnectionStatus_ > 0) ? 16 : 0;
-                            streamer_.createOutlet(streamName, nChannels, physioChCount,
+                            constexpr int dinChCount = 1;  // Single channel with raw 16-bit value
+                            streamer_.createOutlet(streamName, nChannels, physioChCount, dinChCount,
                                                    config_.sampleRate, config_.serverAddress, details_,
                                                    config_.nativeFormat);
 
@@ -672,7 +674,7 @@ void EGIAmpClient::readPacketFormat2() {
             if (config_.nativeFormat) {
                 // Native format: push raw int32 ADC counts
                 std::vector<int32_t> rawSamples;
-                rawSamples.reserve(nChannels + physioChannels);
+                rawSamples.reserve(nChannels + physioChannels + 1);
 
                 for (int ch = 0; ch < nChannels; ch++) {
                     rawSamples.push_back(packet.eegData[ch]);
@@ -692,11 +694,14 @@ void EGIAmpClient::readPacketFormat2() {
                     }
                 }
 
+                // Add DIN channel (raw 16-bit value)
+                rawSamples.push_back(static_cast<int32_t>(packet.digitalInputs));
+
                 streamer_.pushSampleInt32(rawSamples);
             } else {
                 // Default: convert to float microvolts
                 std::vector<float> eegSamples;
-                eegSamples.reserve(nChannels + physioChannels);
+                eegSamples.reserve(nChannels + physioChannels + 1);
 
                 for (int ch = 0; ch < nChannels; ch++) {
                     eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
@@ -728,6 +733,9 @@ void EGIAmpClient::readPacketFormat2() {
                                              PHYSIO_SCALING_9_16);
                     }
                 }
+
+                // Add DIN channel (raw 16-bit value)
+                eegSamples.push_back(static_cast<float>(packet.digitalInputs));
 
                 streamer_.pushSample(eegSamples);
             }
@@ -807,11 +815,11 @@ void EGIAmpClient::readPacketFormat1() {
                 emitSensor(details_.netCode);
                 emitChannelCount(nChannels);
 
-                // Create LSL outlet (no Physio16 support for PacketFormat1)
+                // Create LSL outlet (no Physio16 or DIN support for PacketFormat1)
                 // Note: PacketFormat1 (NA300) already provides float data, so nativeFormat
                 // doesn't apply - we always use float for Format1
                 std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                streamer_.createOutlet(streamName, nChannels, 0,
+                streamer_.createOutlet(streamName, nChannels, 0, 0,
                                        config_.sampleRate, config_.serverAddress, details_,
                                        false);  // Format1 is always float
             }

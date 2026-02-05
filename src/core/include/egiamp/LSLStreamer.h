@@ -23,7 +23,7 @@ public:
     LSLStreamer& operator=(const LSLStreamer&) = delete;
 
     void createOutlet(const std::string& streamName, int eegChannelCount,
-                      int physioChannelCount, int sampleRate,
+                      int physioChannelCount, int dinChannelCount, int sampleRate,
                       const std::string& hostname,
                       const AmplifierDetails& details,
                       bool nativeFormat = false);

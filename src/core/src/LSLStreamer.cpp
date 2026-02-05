@@ -84,7 +84,7 @@ std::string getCapName(NetCode netCode) {
 } // anonymous namespace
 
 void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCount,
-                               int physioChannelCount, int sampleRate,
+                               int physioChannelCount, int dinChannelCount, int sampleRate,
                                const std::string& hostname,
                                const AmplifierDetails& details,
                                bool nativeFormat) {
@@ -92,7 +92,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     closeOutlet();
 
     nativeFormat_ = nativeFormat;
-    int totalChannelCount = eegChannelCount + physioChannelCount;
+    int totalChannelCount = eegChannelCount + physioChannelCount + dinChannelCount;
 
     // Create stream info with unique source ID
     // Include all parameters that make streams incompatible so clients
@@ -215,6 +215,14 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         } else {
             ch.append_child_value("unit", "microvolts");
         }
+    }
+
+    // Digital input (DIN) channel - raw 16-bit value from amplifier's digital I/O
+    if (dinChannelCount > 0) {
+        lsl::xml_element ch = channels.append_child("channel");
+        ch.append_child_value("label", "DIN");
+        ch.append_child_value("type", "DIN");
+        ch.append_child_value("unit", "uint16");
     }
 
     // =========================================================================
