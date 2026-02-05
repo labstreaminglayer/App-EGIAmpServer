@@ -39,11 +39,16 @@ public:
 
     bool hasOutlet() const { return outlet_ != nullptr; }
 
+    // Set timestamp offset in seconds (subtracted from current time when pushing)
+    void setTimestampOffset(double offsetSeconds) { timestampOffset_ = offsetSeconds; }
+    double getTimestampOffset() const { return timestampOffset_; }
+
     void closeOutlet();
 
 private:
     std::unique_ptr<lsl::stream_outlet> outlet_;
     bool nativeFormat_ = false;
+    double timestampOffset_ = 0.0;  // Filter delay compensation in seconds
 };
 
 } // namespace egiamp

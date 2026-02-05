@@ -10,6 +10,24 @@
 
 namespace egiamp {
 
+namespace {
+
+// Calculate anti-alias filter delay in seconds based on sample rate
+// These values are from EGI's Anti-Alias Filter Alignment app
+double getFilterDelaySeconds(int sampleRate, bool fastRecovery) {
+    if (fastRecovery) {
+        return 0.0;  // Native rate has no FPGA filter delay
+    }
+    switch (sampleRate) {
+        case 250:  return 112.0 / 1000.0;   // 112 msec
+        case 500:  return 66.0 / 1000.0;    // 66 msec
+        case 1000: return 36.0 / 1000.0;   // 36 msec
+        default:   return 0.0;             // Native rates only (2000+) have no delay
+    }
+}
+
+} // anonymous namespace
+
 EGIAmpClient::EGIAmpClient() = default;
 
 EGIAmpClient::~EGIAmpClient() {
@@ -96,7 +114,7 @@ bool EGIAmpClient::queryAmplifierDetails() {
         std::string response = connection_.sendCommand(
             "cmd_GetAmpDetails", config_.amplifierId, 0, "0");
 
-        emitStatus("__________________________\n  Amplifier Details\n__________________________");
+        emitStatus("__________________________\n  Amplifier Details\n__________________________\n");
 
         std::regex token(R"(\((\w+)\s+([^()]+)\))");
         std::smatch match;
@@ -107,11 +125,11 @@ bool EGIAmpClient::queryAmplifierDetails() {
 
             if (key.find("packet_format") != std::string::npos) {
                 details_.packetType = static_cast<PacketType>(std::stoi(value));
-                emitStatus("    Packet Format: " + value);
+                emitStatus("    Packet Format: " + value + "\n");
 
             } else if (key.find("number_of_channels") != std::string::npos) {
                 details_.channelCount = std::stoi(value);
-                emitStatus("    Channel Count: " + value);
+                emitStatus("    Channel Count: " + value + "\n");
 
             } else if (key.find("amp_type") != std::string::npos) {
                 if (value.find("NA300") != std::string::npos) {
@@ -129,17 +147,17 @@ bool EGIAmpClient::queryAmplifierDetails() {
 
             } else if (key.find("serial_number") != std::string::npos) {
                 details_.serialNumber = value;
-                emitStatus("    Serial Number: " + value);
+                emitStatus("    Serial Number: " + value + "\n");
 
             } else if (key.find("system_version") != std::string::npos) {
                 details_.firmwareVersion = value;
-                emitStatus("    Firmware Version: " + value);
+                emitStatus("    Firmware Version: " + value + "\n");
             }
 
             response = match.suffix().str();
         }
 
-        emitStatus(std::string("    Amplifier Type: ") + amplifierTypeName(details_.amplifierType));
+        emitStatus(std::string("    Amplifier Type: ") + amplifierTypeName(details_.amplifierType) + "\n");
         emitStatus("__________________________\n__________________________\n");
 
         details_.scalingFactor = getScalingFactor(details_.amplifierType);
@@ -281,7 +299,22 @@ bool EGIAmpClient::initAmplifier() {
     connection_.sendCommand("cmd_SetPower", ampId, 0, "0");
 
     // Set sample rate
-    connection_.sendCommand("cmd_SetDecimatedRate", ampId, 0, sampleRate);
+    // Native rates: 500, 1000, 2000, 4000, 8000 (no FPGA anti-alias filter, lower latency)
+    // Decimated rates: 250, 500, 1000 (FPGA anti-alias filter, higher latency)
+    bool useNative = config_.sampleRate > 1000 ||
+                     (config_.fastRecovery && config_.sampleRate >= 500);
+
+    if (useNative) {
+        if (config_.fastRecovery && config_.sampleRate < 500) {
+            emitStatus("Warning: Fast recovery not available at " +
+                       std::to_string(config_.sampleRate) + " Hz, using decimated mode.\n");
+        }
+        connection_.sendCommand("cmd_SetNativeRate", ampId, 0, sampleRate);
+        emitStatus("Using native rate (fast recovery, no FPGA filter).\n");
+    } else {
+        connection_.sendCommand("cmd_SetDecimatedRate", ampId, 0, sampleRate);
+        emitStatus("Using decimated rate (FPGA anti-alias filter enabled).\n");
+    }
 
     // Power on
     connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
@@ -341,14 +374,50 @@ bool EGIAmpClient::startStreaming() {
     bool ampRunning = isAmplifierStreaming();
 
     if (ampRunning) {
-        emitStatus("Amplifier is already running, skipping initialization.\n");
-        weInitializedAmp_ = false;
-
-        // Detect and use the actual sample rate
+        // Detect the current sample rate
         int detectedRate = detectSampleRate();
-        if (detectedRate > 0) {
-            config_.sampleRate = detectedRate;
-            emitStatus("Using detected sample rate: " + std::to_string(detectedRate) + " Hz\n");
+
+        // Determine if we need to reinitialize
+        bool needsReinit = false;
+        if (config_.forceSampleRate && detectedRate > 0) {
+            if (detectedRate != config_.sampleRate) {
+                // Rate mismatch - must reinitialize
+                needsReinit = true;
+            } else if (config_.alignTimestamps && !config_.fastRecovery &&
+                       (config_.sampleRate == 500 || config_.sampleRate == 1000)) {
+                // Rate matches but we need known filter mode for timestamp alignment
+                // 500 and 1000 Hz can be either native or decimated, so reinit to ensure decimated
+                needsReinit = true;
+                emitStatus("Reinitializing to ensure decimated mode for timestamp alignment.\n");
+            }
+        }
+
+        if (needsReinit) {
+            emitStatus("Amplifier running at " + std::to_string(detectedRate) +
+                       " Hz, reinitializing for " + std::to_string(config_.sampleRate) + " Hz...\n");
+            // Stop, change rate, restart (no power cycle)
+            connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
+            std::string rateStr = std::to_string(config_.sampleRate);
+            bool useNative = config_.sampleRate > 1000 ||
+                             (config_.fastRecovery && config_.sampleRate >= 500);
+            if (useNative) {
+                connection_.sendCommand("cmd_SetNativeRate", config_.amplifierId, 0, rateStr);
+                emitStatus("Using native rate (fast recovery, no FPGA filter).\n");
+            } else {
+                connection_.sendCommand("cmd_SetDecimatedRate", config_.amplifierId, 0, rateStr);
+                emitStatus("Using decimated rate (FPGA anti-alias filter enabled).\n");
+            }
+            connection_.sendCommand("cmd_Start", config_.amplifierId, 0, "0");
+            weInitializedAmp_ = true;
+        } else {
+            emitStatus("Amplifier is already running, skipping initialization.\n");
+            weInitializedAmp_ = false;
+
+            // Use detected sample rate if available
+            if (detectedRate > 0) {
+                config_.sampleRate = detectedRate;
+                emitStatus("Using detected sample rate: " + std::to_string(detectedRate) + " Hz\n");
+            }
         }
     } else {
         emitStatus("Amplifier is not running, initializing...\n");
@@ -566,6 +635,16 @@ void EGIAmpClient::readPacketFormat2() {
                                        config_.sampleRate, config_.serverAddress, details_,
                                        config_.nativeFormat);
 
+                // Apply timestamp offset for filter delay compensation if enabled
+                if (config_.alignTimestamps) {
+                    double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
+                    streamer_.setTimestampOffset(delaySeconds);
+                    if (delaySeconds > 0) {
+                        emitStatus("Timestamp alignment enabled: " +
+                                   std::to_string(static_cast<int>(delaySeconds * 1000)) + " ms offset.\n");
+                    }
+                }
+
                 // Create LSL outlet for impedance if enabled
                 if (config_.impedance) {
                     std::string impedanceStreamName = streamName + " Impedance";
@@ -617,11 +696,14 @@ void EGIAmpClient::readPacketFormat2() {
                         double durationSec = static_cast<double>(durationUs) / 1000000.0;
                         double measuredRate = (rateCheckSampleCount - 1) / durationSec;
 
-                        // Snap to standard rates
+                        // Snap to standard rates (250, 500, 1000, 2000, 4000, 8000)
                         int newRate;
                         if (measuredRate < 375) newRate = 250;
                         else if (measuredRate < 750) newRate = 500;
-                        else newRate = 1000;
+                        else if (measuredRate < 1500) newRate = 1000;
+                        else if (measuredRate < 3000) newRate = 2000;
+                        else if (measuredRate < 6000) newRate = 4000;
+                        else newRate = 8000;
 
                         if (newRate != config_.sampleRate) {
                             emitStatus("Sample rate changed from " +
@@ -638,6 +720,12 @@ void EGIAmpClient::readPacketFormat2() {
                             streamer_.createOutlet(streamName, nChannels, physioChCount, dinChCount,
                                                    config_.sampleRate, config_.serverAddress, details_,
                                                    config_.nativeFormat);
+
+                            // Apply timestamp offset for filter delay compensation if enabled
+                            if (config_.alignTimestamps) {
+                                double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
+                                streamer_.setTimestampOffset(delaySeconds);
+                            }
 
                             // Recreate impedance outlet if enabled
                             if (config_.impedance) {

@@ -33,7 +33,9 @@ The CLI provides a lightweight alternative to the GUI:
 - `--cmd-port <port>` - Command port (default: 9877)
 - `--data-port <port>` - Data port (default: 9879)
 - `--amp-id <id>` - Amplifier ID (default: 0)
-- `--sample-rate <hz>` - Sample rate in Hz (default: 1000). Forces amplifier to this rate if already running at a different rate. Valid rates: 250, 500, 1000 (decimated) or 2000, 4000, 8000 (native).
+- `--sample-rate <hz>` - Sample rate in Hz (default: 1000). Forces amplifier to this rate if already running at a different rate. Valid rates: 250, 500, 1000 (decimated) or 500, 1000, 2000, 4000, 8000 (native).
+- `--fast-recovery` - Use native rate mode (no FPGA anti-alias filter) for lower latency. See [Sample Rate Modes](#sample-rate-modes).
+- `--align-timestamps` - Adjust timestamps to compensate for anti-alias filter delay. See [Timestamp Alignment](#timestamp-alignment).
 - `--impedance` - Enable impedance testing mode
 - `--native-format` - Transmit raw int32 ADC counts instead of float microvolts
 - `--shutdown` - Shutdown the Amp Server (terminates all connections)
@@ -49,7 +51,65 @@ The CLI provides a lightweight alternative to the GUI:
 
 # With native format (int32 ADC counts)
 ./EGIAmpServerCLI --address 10.10.10.51 --native-format
+
+# Low-latency mode (fast recovery)
+./EGIAmpServerCLI --address 10.10.10.51 --sample-rate 1000 --fast-recovery
+
+# With timestamp alignment for filter delay
+./EGIAmpServerCLI --address 10.10.10.51 --sample-rate 1000 --align-timestamps
 ```
+
+## Sample Rate Modes
+
+The NA400/NA410 amplifiers support two operating modes that affect anti-aliasing and latency:
+
+### Decimated Mode (Default)
+
+Uses the FPGA's digital anti-aliasing filter to downsample from the ADC's native rate. This provides:
+- Better frequency response (~400 Hz bandwidth at 1000 Hz sample rate)
+- Higher latency due to filter delay (36-112 samples depending on rate)
+
+Available decimated rates: 250, 500, 1000 Hz
+
+### Native Mode (Fast Recovery)
+
+Bypasses the FPGA filter and samples directly at the requested rate. This provides:
+- Lower latency (~3 samples)
+- Reduced bandwidth (~1/4 of sample rate, e.g., 250 Hz at 1000 Hz sample rate)
+- Optimized for EEG-TMS and real-time BCI applications
+
+Available native rates: 500, 1000, 2000, 4000, 8000 Hz
+
+Use `--fast-recovery` to enable native mode for rates that support both modes (500, 1000 Hz).
+
+### Filter Delay by Sample Rate
+
+| Mode | Sample Rate | Filter Delay (samples) | Filter Delay (ms) |
+|------|-------------|------------------------|-------------------|
+| Decimated | 250 Hz | 112 | 448 ms |
+| Decimated | 500 Hz | 66 | 132 ms |
+| Decimated | 1000 Hz | 36 | 36 ms |
+| Native | 500-8000 Hz | ~3 | ~3 ms |
+
+## Timestamp Alignment
+
+When using decimated mode, the FPGA anti-aliasing filter introduces a delay between when brain activity occurs and when it appears in the data stream. The `--align-timestamps` option compensates for this by adjusting LSL timestamps backward by the filter delay amount.
+
+### When to Use
+
+- **ERP analysis**: Enable `--align-timestamps` to align EEG data with event markers
+- **Real-time BCI**: Use `--fast-recovery` instead (no filter delay to compensate)
+- **Raw recording**: Disable alignment if you prefer unmodified timestamps
+
+### Limitations
+
+**Important**: Timestamp alignment only works correctly when this application initializes the amplifier. If Net Station or another application previously initialized the amplifier, the current operating mode (decimated vs native) cannot be queried from AmpServer. In this case:
+
+1. The application will reinitialize the amplifier to ensure the correct mode
+2. This will interrupt any existing Net Station recording
+3. To avoid this, start EGIAmpServer before Net Station, or restart the amplifier
+
+If you need to join an existing Net Station session without reinitialization, do not use `--align-timestamps` unless you are certain of the current mode.
 
 ## Impedance Testing
 

@@ -14,6 +14,9 @@ struct AmpServerConfig {
     uint16_t dataPort = 9879;
     int amplifierId = 0;
     int sampleRate = 1000;
+    bool forceSampleRate = false;  // When true, reinitialize amp if running at different rate
+    bool fastRecovery = false;     // When true, use native rate (no FPGA filter) for lower latency
+    bool alignTimestamps = false;  // When true, adjust timestamps to compensate for filter delay
     bool impedance = false;
     bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
 
