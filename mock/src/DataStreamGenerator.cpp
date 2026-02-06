@@ -119,9 +119,9 @@ void DataStreamGenerator::stopListening(int64_t ampId) {
 }
 
 void DataStreamGenerator::streamingThread() {
-    const int samplesPerSecond = 1000;  // Base rate
-    const int samplesPerPacket = 5;     // Send 5 samples per network packet
-    const auto packetInterval = std::chrono::milliseconds(samplesPerPacket);
+    // We send packets at ~200 Hz (every 5ms) and adjust samples per packet
+    // based on sample rate to achieve the correct rate
+    const auto packetInterval = std::chrono::milliseconds(5);
 
     while (running_) {
         if (amplifier_->isStreaming() && listening_) {
@@ -153,8 +153,14 @@ void DataStreamGenerator::sendDataToClients() {
 }
 
 void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
-    const int samplesPerPacket = 5;
     const auto& state = amplifier_->state();
+
+    // Calculate samples per packet based on sample rate
+    // We send packets every 5ms, so samples = rate * 0.005
+    // 1000 Hz = 5 samples, 2000 Hz = 10 samples, 4000 Hz = 20 samples, 8000 Hz = 40 samples
+    int sampleRate = state.decimatedRate > 0 ? state.decimatedRate : 1000;
+    int samplesPerPacket = (sampleRate * 5) / 1000;
+    if (samplesPerPacket < 1) samplesPerPacket = 1;
 
     // Determine packet format
     if (state.packetFormat == PacketFormat::Format2) {

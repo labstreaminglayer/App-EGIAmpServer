@@ -165,6 +165,11 @@ private:
     // For synthetic data generation
     double phase_ = 0.0;
 
+    // DIN counter - cycles 0x0000 to 0xFFFF at 1kHz base rate
+    // At higher sample rates, values are duplicated:
+    // 2kHz = 2x duplicates, 4kHz = 4x, 8kHz = 8x
+    uint32_t dinCounter_ = 0;
+
     int64_t getCurrentTimeMicros() const;
 };
 

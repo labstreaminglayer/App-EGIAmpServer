@@ -369,8 +369,16 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::memset(&packet, 0, sizeof(packet));
 
-    // Digital inputs (mock value)
-    packet.digitalInputs = 0;
+    // Digital inputs - cycle 0x0000 to 0xFFFF at 1kHz base rate
+    // At higher sample rates, duplicate the values:
+    // 1kHz: each value once, 2kHz: twice, 4kHz: 4x, 8kHz: 8x
+    int sampleRate = state_.decimatedRate > 0 ? state_.decimatedRate : 1000;
+    int duplicateFactor = sampleRate / 1000;
+    if (duplicateFactor < 1) duplicateFactor = 1;
+
+    // Calculate which 1kHz "tick" we're on
+    uint32_t din1kHzTick = static_cast<uint32_t>(state_.packetCounter / duplicateFactor);
+    packet.digitalInputs = static_cast<uint16_t>(din1kHzTick & 0xFFFF);
 
     // TR byte (255 = no GTEN activity)
     packet.tr = state_.gtenTrainRunning ? 251 : 255;
@@ -383,21 +391,62 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     packet.netCode = static_cast<uint8_t>(state_.netCode);
 
     // Generate synthetic EEG data
-    double sampleRate = state_.decimatedRate;
     double dt = 1.0 / sampleRate;
     phase_ += dt;
 
     float scaleFactor = getScalingFactor(state_.amplifierType);
 
-    for (int ch = 0; ch < 256; ++ch) {
-        double freq = 10.0 + (ch % 40);
-        double amplitude = 50.0;  // ~50 uV
-        double noise = (rand() % 1000 - 500) / 500.0 * 5.0;
+    // Check if we're in impedance mode (oscillator on, calibration signal configured)
+    bool impedanceMode = state_.oscillatorGate &&
+                         state_.calibrationSignalFreq > 0 &&
+                         state_.calibrationSignalAmplitude > 0;
 
-        if (state_.channelDriveSignals[ch] || state_.allDriveSignals) {
-            freq = state_.calibrationSignalFreq > 0 ? state_.calibrationSignalFreq : 10.0;
-            amplitude = state_.calibrationSignalAmplitude > 0 ?
-                        state_.calibrationSignalAmplitude : 100.0;
+    // Ideal signal amplitude in microvolts for impedance mode
+    // This matches what a 0-ohm electrode would produce
+    constexpr double IDEAL_SIGNAL_UV = 100.0;
+    constexpr double REFERENCE_RESISTOR_KOHMS = 10.0;
+
+    for (int ch = 0; ch < 256; ++ch) {
+        double freq;
+        double amplitude;
+        double noise = (rand() % 1000 - 500) / 500.0 * 2.0;  // ~2 uV noise
+
+        // Check channel state for impedance measurement
+        bool channelDriving = state_.channelDriveSignals[ch] || state_.allDriveSignals;
+        bool channel10K = state_.channel10KOhms[ch] || state_.all10KOhms;
+
+        if (impedanceMode) {
+            // Use calibration signal frequency
+            freq = static_cast<double>(state_.calibrationSignalFreq);
+
+            if (!channelDriving && channel10K) {
+                // Channel is in MEASUREMENT mode (drive off, 10K on)
+                // Simulate voltage divider: amplitude reduced based on "electrode impedance"
+                // Generate a random but stable impedance per channel (5-100 kOhms)
+                double simulatedImpedance = 5.0 + (ch * 17 % 95);  // Deterministic pseudo-random
+
+                // Voltage divider: Vout = Vin * R_ref / (R_ref + Z_electrode)
+                // amplitude = ideal * R_ref / (R_ref + Z)
+                amplitude = IDEAL_SIGNAL_UV * REFERENCE_RESISTOR_KOHMS /
+                           (REFERENCE_RESISTOR_KOHMS + simulatedImpedance);
+            } else if (channelDriving) {
+                // Channel is DRIVING - full calibration signal
+                amplitude = IDEAL_SIGNAL_UV;
+            } else {
+                // Neither driving nor measuring - minimal signal
+                amplitude = 5.0;
+            }
+        } else {
+            // Normal EEG mode - generate synthetic brain signals
+            freq = 10.0 + (ch % 40);  // Different frequencies per channel
+            amplitude = 50.0;  // ~50 uV
+
+            // Add calibration signal if enabled
+            if (channelDriving && state_.calibrationSignalFreq > 0) {
+                freq = static_cast<double>(state_.calibrationSignalFreq);
+                amplitude = state_.calibrationSignalAmplitude > 0 ?
+                            static_cast<double>(state_.calibrationSignalAmplitude) : 100.0;
+            }
         }
 
         double value = amplitude * std::sin(2.0 * M_PI * freq * phase_) + noise;

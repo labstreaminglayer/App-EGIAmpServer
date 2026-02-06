@@ -40,25 +40,25 @@ The measurement process uses three amplifier states:
 
 All electrodes actively drive the calibration signal onto the scalp:
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| All 10K Resistors | OFF | Electrodes not connected to reference |
-| All Drive Signals | ON | All electrodes driving calibration signal |
-| Oscillator Gate | ON | Enable 20 Hz sine wave generator |
-| Calibration Frequency | 20 Hz | Low frequency for skin penetration |
-| Calibration Amplitude | 4095 | Maximum (12-bit DAC) |
-| Wave Shape | Sine (0) | Clean sinusoidal signal |
-| Subject Ground | OFF | Not grounded during measurement |
-| Current Source | OFF | Voltage mode measurement |
+| Setting               | Value    | Description                               |
+|-----------------------|----------|-------------------------------------------|
+| All 10K Resistors     | OFF      | Electrodes not connected to reference     |
+| All Drive Signals     | ON       | All electrodes driving calibration signal |
+| Oscillator Gate       | ON       | Enable 20 Hz sine wave generator          |
+| Calibration Frequency | 20 Hz    | Low frequency for skin penetration        |
+| Calibration Amplitude | 4095     | Maximum (12-bit DAC)                      |
+| Wave Shape            | Sine (0) | Clean sinusoidal signal                   |
+| Subject Ground        | OFF      | Not grounded during measurement           |
+| Current Source        | OFF      | Voltage mode measurement                  |
 
 ### Measurement State (Per-Channel)
 
 For the channel being measured:
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| Channel Drive Signal | OFF | Stop driving this electrode |
-| Channel 10K Resistor | ON | Connect to reference resistor |
+| Setting              | Value  | Description                   |
+|----------------------|--------|-------------------------------|
+| Channel Drive Signal | OFF    | Stop driving this electrode   |
+| Channel 10K Resistor | ON     | Connect to reference resistor |
 
 All other channels remain in excitation state, creating the voltage divider.
 
@@ -66,10 +66,10 @@ All other channels remain in excitation state, creating the voltage divider.
 
 After measurement, return channel to excitation state:
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| Channel Drive Signal | ON | Resume driving |
-| Channel 10K Resistor | OFF | Disconnect reference |
+| Setting              | Value  | Description          |
+|----------------------|--------|----------------------|
+| Channel Drive Signal | ON     | Resume driving       |
+| Channel 10K Resistor | OFF    | Disconnect reference |
 
 ## Measurement Algorithm
 
@@ -91,14 +91,12 @@ After measurement, return channel to excitation state:
 
 ## Timing Parameters
 
-From EGI's Net Station implementation:
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| Command Time | 30 ms | Time for command to reach amplifier |
-| Settle Time | 0 ms | Additional settling (Net Station uses 0) |
-| Filter Time | 1.0 s | Duration for filter/measurement |
-| Peak-to-Peak Samples | 51 | Samples for amplitude calculation |
+| Parameter            | Value  | Description                         |
+|----------------------|--------|-------------------------------------|
+| Command Time         | 30 ms  | Time for command to reach amplifier |
+| Settle Time          | 0 ms   | Additional settling                 |
+| Filter Time          | 1.0 s  | Duration for filter/measurement     |
+| Peak-to-Peak Samples | 51     | Samples for amplitude calculation   |
 
 Total time per channel: ~1.03 seconds
 
@@ -142,14 +140,14 @@ Coordinates are on a unit sphere:
 
 ### Key Source Files
 
-| File | Description |
-|------|-------------|
-| [ImpedanceMeasurement.h](src/core/include/egiamp/ImpedanceMeasurement.h) | Class declaration and timing structures |
-| [ImpedanceMeasurement.cpp](src/core/src/ImpedanceMeasurement.cpp) | Measurement algorithm implementation |
-| [LSLStreamer.cpp](src/core/src/LSLStreamer.cpp) | LSL outlet creation with electrode positions |
-| [ElectrodePositions.h](src/core/include/egiamp/ElectrodePositions.h) | Electrode coordinate definitions |
-| [ElectrodePositions.cpp](src/core/src/ElectrodePositions.cpp) | Geodesic position generation |
-| [EGIAmpClient.cpp](src/core/src/EGIAmpClient.cpp) | Integration with streaming client |
+| File                                                                     | Description                                  |
+|--------------------------------------------------------------------------|----------------------------------------------|
+| [ImpedanceMeasurement.h](src/core/include/egiamp/ImpedanceMeasurement.h) | Class declaration and timing structures      |
+| [ImpedanceMeasurement.cpp](src/core/src/ImpedanceMeasurement.cpp)        | Measurement algorithm implementation         |
+| [LSLStreamer.cpp](src/core/src/LSLStreamer.cpp)                          | LSL outlet creation with electrode positions |
+| [ElectrodePositions.h](src/core/include/egiamp/ElectrodePositions.h)     | Electrode coordinate definitions             |
+| [ElectrodePositions.cpp](src/core/src/ElectrodePositions.cpp)            | Geodesic position generation                 |
+| [EGIAmpClient.cpp](src/core/src/EGIAmpClient.cpp)                        | Integration with streaming client            |
 
 ### Key Classes
 
@@ -166,17 +164,17 @@ Coordinates are on a unit sphere:
 
 ### AmpServer Commands
 
-| Command | Description |
-|---------|-------------|
-| `cmd_TurnAll10KOhms` | Set all 10K resistors (0=off, 1=on) |
-| `cmd_TurnAllDriveSignals` | Set all drive signals (0=off, 1=on) |
-| `cmd_TurnChannel10KOhms` | Set single channel 10K resistor |
-| `cmd_TurnChannelDriveSignals` | Set single channel drive signal |
-| `cmd_SetOscillatorGate` | Enable/disable calibration oscillator |
-| `cmd_SetCalibrationSignalFreq` | Set frequency (20 Hz for impedance) |
-| `cmd_SetCalibrationSignalAmplitude` | Set amplitude (0-4095) |
-| `cmd_SetWaveShape` | Set waveform (0=sine, 1=square) |
-| `cmd_DefaultAcquisitionState` | Reset to normal EEG acquisition |
+| Command                             | Description                           |
+|-------------------------------------|---------------------------------------|
+| `cmd_TurnAll10KOhms`                | Set all 10K resistors (0=off, 1=on)   |
+| `cmd_TurnAllDriveSignals`           | Set all drive signals (0=off, 1=on)   |
+| `cmd_TurnChannel10KOhms`            | Set single channel 10K resistor       |
+| `cmd_TurnChannelDriveSignals`       | Set single channel drive signal       |
+| `cmd_SetOscillatorGate`             | Enable/disable calibration oscillator |
+| `cmd_SetCalibrationSignalFreq`      | Set frequency (20 Hz for impedance)   |
+| `cmd_SetCalibrationSignalAmplitude` | Set amplitude (0-4095)                |
+| `cmd_SetWaveShape`                  | Set waveform (0=sine, 1=square)       |
+| `cmd_DefaultAcquisitionState`       | Reset to normal EEG acquisition       |
 
 ## Usage
 
@@ -201,18 +199,6 @@ pip install -r requirements.txt
 python impedance_viewer.py --threshold 50
 ```
 
-## Impedance Thresholds
-
-Recommended thresholds for EGI saline-based nets:
-
-| Quality | Impedance (kΩ) | Color |
-|---------|----------------|-------|
-| Excellent | < 20 | Green |
-| Good | 20 - 50 | Yellow-Green |
-| Acceptable | 50 - 100 | Yellow |
-| Poor | 100 - 200 | Orange |
-| Bad | > 200 | Red |
-
 Values of 1000 kΩ indicate:
 - Electrode not yet measured
 - No contact with scalp
@@ -221,4 +207,5 @@ Values of 1000 kΩ indicate:
 ## References
 
 - EGI AmpServer SDK Documentation
+- Net Station Acquisition source code (NSAAmpSettings.m, ImpedancesController.m)
 - EGI Geodesic Sensor Net Technical Manual
