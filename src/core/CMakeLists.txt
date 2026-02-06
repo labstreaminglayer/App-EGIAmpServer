@@ -1,6 +1,8 @@
 add_library(egiamp_core STATIC
     src/AmpServerConfig.cpp
     src/AmpServerConnection.cpp
+    src/ElectrodePositions.cpp
+    src/ImpedanceMeasurement.cpp
     src/LSLStreamer.cpp
     src/EGIAmpClient.cpp
 )

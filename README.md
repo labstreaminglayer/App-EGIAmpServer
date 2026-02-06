@@ -113,17 +113,35 @@ If you need to join an existing Net Station session without reinitialization, do
 
 ## Impedance Testing
 
-The application supports dual-stream impedance testing, allowing you to measure electrode impedances without disrupting ongoing EEG recordings.
+The application supports electrode impedance measurement using the same algorithm as Net Station Acquisition.
 
 ### Overview
 
 When impedance mode is enabled:
-- The amplifier switches to impedance measurement mode (injects test signals)
+- The amplifier is configured for impedance measurement (20 Hz calibration signal)
 - **Two LSL streams are created**:
-  1. **EEG Stream** (`type: EEG`) - Continues with raw data at the configured sample rate (contains test signals during impedance testing)
-  2. **Impedance Stream** (`type: Impedance`) - Publishes compliance voltage values when current injection is active
+  1. **EEG Stream** (`type: EEG`) - Raw amplifier data containing the calibration signal
+  2. **Impedance Stream** (`type: Impedance`) - Calculated impedance values in kilo-ohms
+- The application cycles through each channel, measuring impedance one at a time
+- A complete scan of all channels takes approximately 1-5 minutes depending on channel count
 
-This dual-stream approach ensures downstream applications recording EEG data are not disrupted by impedance measurements.
+### How It Works
+
+The impedance measurement follows Net Station's algorithm:
+
+1. **Initial State**: All channels are "driving" the 20 Hz calibration signal
+   - Drive signals ON, 10K resistors OFF for all channels
+   - Oscillator enabled at 20 Hz sine wave, maximum amplitude (4095)
+
+2. **Per-Channel Measurement**: For each channel:
+   - Turn OFF the drive signal (isolate channel from calibration)
+   - Turn ON the 10K reference resistor
+   - Wait ~1 second for signal to settle
+   - Measure peak-to-peak amplitude from collected samples
+   - Calculate impedance using: `Z = (idealSignal - amplitude) / (amplitude / 10)`
+   - Reset channel back to driving state
+
+3. **Output**: After measuring all channels, the impedance values (in kOhms) are pushed to the LSL impedance stream
 
 ### Enabling Impedance Mode
 
@@ -141,9 +159,6 @@ Add to your `ampserver_config.cfg`:
 </settings>
 ```
 
-#### Via GUI
-Currently not implemented in GUI. Use CLI or config file.
-
 ### LSL Streams Created
 
 #### 1. EEG Stream
@@ -153,7 +168,7 @@ Currently not implemented in GUI. Use CLI or config file.
 - **Channels**: Depends on sensor net (32-256 channels)
 - **Format**: `float32` (default) or `int32` (with `--native-format`)
 - **Unit**: `microvolts` (default) or `counts` (with `--native-format`)
-- **Behavior**: Streams continuously with raw amplifier data (includes test signals during impedance mode)
+- **Behavior**: Streams continuously with raw amplifier data (contains 20 Hz calibration signal during impedance mode)
 
 ##### Native Format Mode
 When `--native-format` is enabled:
@@ -165,71 +180,57 @@ When `--native-format` is enabled:
 #### 2. Impedance Stream
 - **Name**: `EGI NetAmp <amp_id> Impedance`
 - **Type**: `Impedance`
-- **Rate**: 0 (irregular rate - only when current is injecting)
+- **Rate**: 1 Hz (regular rate)
 - **Channels**: Same count and labels as EEG stream
-- **Unit**: volts (compliance voltage)
-- **Behavior**: Only publishes samples when the amplifier's TR byte indicates current injection is active
+- **Unit**: `kohms` (kilo-ohms)
+- **Behavior**: Publishes current known impedance values every second
+  - Initially, all channels show 1000 kOhms (not yet measured)
+  - As each channel is measured, its value updates
+  - Values persist until the next measurement of that channel
 
 ### Understanding the Data
 
-#### Compliance Voltage
-The impedance stream provides **compliance voltage** measurements in volts:
-- Formula: `V_compliance = (V_channel + V_ref) × 201 × 10⁻⁶`
-- This represents the voltage required to maintain constant current through the electrode-skin interface
-
-#### Converting to Impedance (Ohms)
-Once you confirm the drive current with EGI:
-```
-Z (Ω) = V_compliance (V) / I_drive (A)
-```
-
-**Example**: If EGI confirms a 10 nA drive current:
-```
-Z (Ω) = V_compliance (V) / 10×10⁻⁹ (A)
-Z (kΩ) = V_compliance (V) / 10×10⁻⁶ (A)
-```
-
-#### TR Byte
-The impedance stream monitors the TR (test/reference) byte from the amplifier:
-- **Bit 2 cleared (TR & 0x04 == 0)**: Current injection ON → impedance samples published
-- **Bit 2 set (TR & 0x04 == 1)**: Normal mode → no impedance samples
-
-This means the impedance stream will have gaps when current injection is not active.
-
-### Testing with Mock Server
-
-The mock server supports impedance mode for development testing:
-
-**Terminal 1: Start mock server in impedance mode**
-```bash
-python3 mock/mock_ampserver.py --impedance
-```
-
-**Terminal 2: Run CLI with impedance mode**
-```bash
-./EGIAmpServerCLI --address 127.0.0.1 --impedance
-```
-
-The mock server generates deterministic impedance data for verification:
-- Base count: 10,000
-- Step size: 250 per channel group
-- TR byte: 0xFB (bit 2 cleared = injecting)
-- Reference monitor: 10,000
+Each sample in the impedance stream contains one value per channel:
+- **Good electrodes**: Typically 5-50 kOhms
+- **Acceptable electrodes**: 50-100 kOhms
+- **Poor electrodes**: 100-200 kOhms
+- **Bad/disconnected electrodes**: 1000 kOhms (maximum/clipped value)
 
 ### Hardware Commands Sent
 
-When impedance mode is enabled, the following commands are sent to the amplifier:
-1. `cmd_TurnAll10KOhms` (1) - Place 10kΩ resistor on all channel inputs
-2. `cmd_SetReference10KOhms` (1) - Place 10kΩ resistor on reference input
-3. `cmd_SetSubjectGround` (1) - Configure subject ground
-4. `cmd_SetCurrentSource` (1) - Enable constant current mode
-5. `cmd_TurnAllDriveSignals` (1) - Enable drive signals on all channels
+#### Initial Impedance State Setup
+```
+cmd_TurnAll10KOhms(0)                    - 10K resistors OFF (channels driving)
+cmd_TurnAllDriveSignals(1)               - Drive signals ON (all channels active)
+cmd_SetSubjectGround(0)                  - Subject ground OFF
+cmd_SetCurrentSource(0)                  - Current source OFF
+cmd_SetCalibrationSignalFreq(20)         - 20 Hz calibration signal
+cmd_SetWaveShape(0)                      - Sine wave
+cmd_SetBufferedReference(0)              - Buffered reference OFF
+cmd_SetOscillatorGate(1)                 - Oscillator ON
+cmd_SetReference10KOhms(0)               - Reference 10K OFF
+cmd_SetReferenceDriveSignal(0)           - Reference drive signal OFF
+cmd_SetDrivenCommon(0)                   - Driven leg OFF
+cmd_SetCalibrationSignalAmplitude(4095)  - Maximum amplitude
+```
+
+#### Per-Channel Measurement
+```
+# To measure channel N:
+cmd_TurnChannelDriveSignals(N, 0)  - Turn OFF drive signal
+cmd_TurnChannel10KOhms(N, 1)       - Turn ON 10K resistor
+
+# After measurement:
+cmd_TurnChannelDriveSignals(N, 1)  - Turn ON drive signal (reset)
+cmd_TurnChannel10KOhms(N, 0)       - Turn OFF 10K resistor (reset)
+```
 
 ### Limitations and Notes
 
-- **No real-time impedance in Net Station**: If you start Net Station Acquisition after enabling impedance mode, Net Station will not display impedance values (it expects the amplifier to be in default mode)
-- **Stream metadata**: The impedance stream includes a note in its metadata: "Compliance voltage values. Divide by drive current to obtain impedance in ohms."
-- **Sample rate**: The impedance stream uses rate=0 (irregular) to indicate samples arrive on-demand
+- **Scan Duration**: A full 256-channel scan takes approximately 5 minutes in single-channel mode
+- **No tiling sets yet**: The current implementation measures one channel at a time. Tiling set support (faster, ~1 minute for 256 channels) is planned for a future release
+- **Ideal signal estimation**: The "ideal signal" (expected amplitude with 0 impedance) is estimated from the first measurement. For more accurate results, gains calibration should be performed first
+- **Net Station compatibility**: Running impedance mode will interfere with Net Station Acquisition if it's connected to the same amplifier
 - **Channel labels**: Both streams use identical channel labels (E1, E2, ..., En)
 
 ### Downstream Processing
@@ -246,16 +247,27 @@ impedance_streams = pylsl.resolve_byprop('type', 'Impedance')
 eeg_inlet = pylsl.StreamInlet(streams[0])
 imp_inlet = pylsl.StreamInlet(impedance_streams[0])
 
-# Pull impedance data (will return empty if not injecting)
-imp_sample, timestamp = imp_inlet.pull_sample(timeout=0.0)
+# Pull impedance data (arrives at 1 Hz)
+imp_sample, timestamp = imp_inlet.pull_sample(timeout=2.0)
 if imp_sample:
-    # Convert to ohms (example with 10 nA drive current)
-    drive_current_A = 10e-9
-    impedances_ohms = [v / drive_current_A for v in imp_sample]
-    impedances_kohms = [z / 1000 for z in impedances_ohms]
-    print(f"Impedances: {impedances_kohms} kΩ")
+    # Count how many channels have been measured
+    measured = sum(1 for z in imp_sample if z < 1000)
+    print(f"Measured: {measured}/{len(imp_sample)} channels")
 
-# EEG data continues normally
+    for ch, z in enumerate(imp_sample):
+        if z >= 1000:
+            status = "not measured"
+        elif z < 50:
+            status = "good"
+        elif z < 100:
+            status = "ok"
+        elif z < 200:
+            status = "poor"
+        else:
+            status = "bad"
+        print(f"E{ch+1}: {z:.1f} kOhms ({status})")
+
+# EEG data continues normally (contains calibration signal during impedance mode)
 eeg_sample, timestamp = eeg_inlet.pull_sample()
 ```
 

@@ -1,0 +1,4 @@
+# Requirements for impedance_viewer.py
+pylsl>=1.16.0
+numpy>=1.20.0
+matplotlib>=3.5.0

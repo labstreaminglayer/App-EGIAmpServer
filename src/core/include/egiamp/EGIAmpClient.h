@@ -4,6 +4,7 @@
 #include "AmpServerConfig.h"
 #include "AmpServerConnection.h"
 #include "AmpServerProtocol.h"
+#include "ImpedanceMeasurement.h"
 #include "LSLStreamer.h"
 
 #include <atomic>
@@ -47,6 +48,12 @@ public:
 
     bool startStreaming();
     void stopStreaming();
+
+    // Dynamic impedance mode control (for GUI toggle while streaming)
+    // Returns false if not currently streaming or if operation fails
+    bool startImpedanceMode();
+    bool stopImpedanceMode();
+    bool isImpedanceModeActive() const;
 
     // Shutdown the Amp Server process (cmd_Exit)
     // Warning: This terminates the Amp Server and will disconnect all clients
@@ -92,9 +99,11 @@ private:
     LSLStreamer streamer_;
     LSLStreamer impedanceStreamer_;
     AmplifierDetails details_;
+    std::unique_ptr<ImpedanceMeasurement> impedanceMeasurement_;
 
     std::atomic<bool> stopFlag_{false};
     std::atomic<bool> sampleRateChangeDetected_{false};  // Set when ntn_AmpStarted received
+    std::atomic<bool> impedanceModeActive_{false};  // Dynamic impedance mode state
     bool weInitializedAmp_{false};  // Track if we initialized the amp (vs. it was already running)
     bool ampWasRunning_{false};     // Was the amp running when we queried state?
     int detectedSampleRate_{0};     // Sample rate detected from running amp

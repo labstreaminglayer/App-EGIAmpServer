@@ -87,25 +87,21 @@ bool EGIAmpClient::commandCompleted(const std::string& response) {
 }
 
 bool EGIAmpClient::cmd_ImpedanceAcquisitionState() {
-    emitStatus("Enabling impedance mode...\n");
+    // Create and configure the impedance measurement handler
+    impedanceMeasurement_ = std::make_unique<ImpedanceMeasurement>(connection_, config_.amplifierId);
 
-    const int ampId = config_.amplifierId;
-    const std::pair<const char*, const char*> commands[] = {
-        {"cmd_TurnAll10KOhms", "1"},
-        {"cmd_SetReference10KOhms", "1"},
-        {"cmd_SetSubjectGround", "1"},
-        {"cmd_SetCurrentSource", "1"},
-        {"cmd_TurnAllDriveSignals", "1"},
-    };
+    impedanceMeasurement_->setStatusCallback([this](const std::string& msg) {
+        emitStatus(msg);
+    });
 
-    for (const auto& [command, value] : commands) {
-        const std::string response = connection_.sendCommand(command, ampId, 0, value);
-        if (!commandCompleted(response)) {
-            throw std::runtime_error(std::string(command) + " failed: " + response);
-        }
+    impedanceMeasurement_->setSampleRate(config_.sampleRate);
+    impedanceMeasurement_->setScalingFactor(details_.scalingFactor);
+
+    // Set up the amplifier in impedance measurement state
+    if (!impedanceMeasurement_->setupImpedanceState()) {
+        throw std::runtime_error("Failed to configure impedance state");
     }
 
-    emitStatus("Impedance mode enabled.\n");
     return true;
 }
 
@@ -340,6 +336,18 @@ bool EGIAmpClient::initAmplifier() {
 
 void EGIAmpClient::haltAmplifier() {
     emitStatus("Stopping stream...\n");
+
+    // Stop impedance measurement if running
+    if (impedanceMeasurement_) {
+        impedanceMeasurement_->stop();
+        if (weInitializedAmp_) {
+            // Reset amplifier to default state
+            impedanceMeasurement_->resetToDefaultState();
+        }
+        impedanceMeasurement_.reset();
+    }
+    impedanceModeActive_ = false;
+
     try {
         connection_.sendDatastreamCommand("cmd_StopListeningToAmp",
                                           config_.amplifierId, 0, "0");
@@ -392,6 +400,12 @@ bool EGIAmpClient::startStreaming() {
             }
         }
 
+        // Impedance mode requires specific amplifier configuration
+        if (config_.impedance) {
+            needsReinit = true;
+            emitStatus("Impedance mode requested, reinitializing amplifier...\n");
+        }
+
         if (needsReinit) {
             emitStatus("Amplifier running at " + std::to_string(detectedRate) +
                        " Hz, reinitializing for " + std::to_string(config_.sampleRate) + " Hz...\n");
@@ -407,6 +421,17 @@ bool EGIAmpClient::startStreaming() {
                 connection_.sendCommand("cmd_SetDecimatedRate", config_.amplifierId, 0, rateStr);
                 emitStatus("Using decimated rate (FPGA anti-alias filter enabled).\n");
             }
+
+            // Configure impedance state if requested
+            if (config_.impedance) {
+                try {
+                    cmd_ImpedanceAcquisitionState();
+                } catch (const std::exception& ex) {
+                    emitError(std::string("Failed to configure impedance mode: ") + ex.what());
+                    return false;
+                }
+            }
+
             connection_.sendCommand("cmd_Start", config_.amplifierId, 0, "0");
             weInitializedAmp_ = true;
         } else {
@@ -510,6 +535,78 @@ void EGIAmpClient::stopStreaming() {
         notificationThread_->join();
         notificationThread_.reset();
     }
+}
+
+bool EGIAmpClient::startImpedanceMode() {
+    if (!isStreaming()) {
+        emitError("Cannot start impedance mode: not streaming");
+        return false;
+    }
+
+    if (impedanceModeActive_) {
+        return true;  // Already active
+    }
+
+    emitStatus("Starting impedance mode...\n");
+
+    // Create and configure impedance measurement handler
+    impedanceMeasurement_ = std::make_unique<ImpedanceMeasurement>(connection_, config_.amplifierId);
+    impedanceMeasurement_->setStatusCallback([this](const std::string& msg) {
+        emitStatus(msg);
+    });
+    impedanceMeasurement_->setSampleRate(config_.sampleRate);
+    impedanceMeasurement_->setScalingFactor(details_.scalingFactor);
+
+    // Set up the amplifier in impedance measurement state
+    if (!impedanceMeasurement_->setupImpedanceState()) {
+        emitError("Failed to configure impedance state");
+        impedanceMeasurement_.reset();
+        return false;
+    }
+
+    // Create impedance LSL outlet
+    int nChannels = getChannelCountFromNetCode(details_.netCode);
+    if (nChannels <= 0) {
+        nChannels = details_.channelCount;
+    }
+    std::string streamName = "EGI NetAmp " + std::to_string(config_.amplifierId) + " Impedance";
+    impedanceStreamer_.createImpedanceOutlet(streamName, nChannels, config_.serverAddress, details_);
+    emitStatus("Impedance stream created.\n");
+
+    // Configure channel count and start scanning
+    impedanceMeasurement_->setChannelCount(nChannels);
+    impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
+    emitStatus("Impedance scanning started.\n");
+
+    impedanceModeActive_ = true;
+    return true;
+}
+
+bool EGIAmpClient::stopImpedanceMode() {
+    if (!impedanceModeActive_) {
+        return true;  // Already stopped
+    }
+
+    emitStatus("Stopping impedance mode...\n");
+
+    // Stop scanning and reset amplifier state
+    if (impedanceMeasurement_) {
+        impedanceMeasurement_->stop();
+        impedanceMeasurement_->resetToDefaultState();
+        impedanceMeasurement_.reset();
+    }
+
+    // Close impedance outlet
+    impedanceStreamer_.closeOutlet();
+    emitStatus("Impedance stream closed.\n");
+
+    impedanceModeActive_ = false;
+    emitStatus("Impedance mode stopped.\n");
+    return true;
+}
+
+bool EGIAmpClient::isImpedanceModeActive() const {
+    return impedanceModeActive_;
 }
 
 bool EGIAmpClient::shutdownAmpServer() {
@@ -645,12 +742,18 @@ void EGIAmpClient::readPacketFormat2() {
                     }
                 }
 
-                // Create LSL outlet for impedance if enabled
-                if (config_.impedance) {
+                // Create LSL outlet for impedance if enabled and start scanning
+                if (config_.impedance && impedanceMeasurement_) {
                     std::string impedanceStreamName = streamName + " Impedance";
                     impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
                                                              config_.serverAddress, details_);
                     emitStatus("Impedance stream created.\n");
+
+                    // Configure and start the impedance measurement
+                    impedanceMeasurement_->setChannelCount(nChannels);
+                    impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
+                    emitStatus("Impedance scanning started.\n");
+                    impedanceModeActive_ = true;
                 }
             }
 
@@ -727,12 +830,15 @@ void EGIAmpClient::readPacketFormat2() {
                                 streamer_.setTimestampOffset(delaySeconds);
                             }
 
-                            // Recreate impedance outlet if enabled
-                            if (config_.impedance) {
+                            // Recreate impedance outlet and restart scanning if active
+                            if (impedanceModeActive_ && impedanceMeasurement_) {
+                                impedanceMeasurement_->stop();
                                 impedanceStreamer_.closeOutlet();
                                 std::string impedanceStreamName = streamName + " Impedance";
                                 impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
                                                                          config_.serverAddress, details_);
+                                impedanceMeasurement_->setSampleRate(config_.sampleRate);
+                                impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
                             }
                         } else {
                             emitStatus("Sample rate unchanged at " +
@@ -828,31 +934,9 @@ void EGIAmpClient::readPacketFormat2() {
                 streamer_.pushSample(eegSamples);
             }
 
-            // Push impedance data if in impedance mode and current is injecting
-            if (config_.impedance && impedanceStreamer_.hasOutlet()) {
-                // Check TR byte: bit 2 cleared means injecting current
-                bool injectingCurrent = (packet.tr & 0x04) == 0;
-
-                if (injectingCurrent) {
-                    // Calculate compliance voltage
-                    float refMicroVolts = static_cast<float>(packet.refMonitor) *
-                                          details_.scalingFactor;
-
-                    std::vector<float> impedanceSamples;
-                    impedanceSamples.reserve(nChannels);
-
-                    for (int ch = 0; ch < nChannels; ch++) {
-                        float channelMicroVolts = static_cast<float>(packet.eegData[ch]) *
-                                                  details_.scalingFactor;
-                        // Compliance voltage formula: (channel + ref) * 201
-                        float complianceMicroVolts = (channelMicroVolts + refMicroVolts) * 201.0f;
-                        // Convert to volts
-                        float complianceVolts = complianceMicroVolts * 1e-6f;
-                        impedanceSamples.push_back(complianceVolts);
-                    }
-
-                    impedanceStreamer_.pushSample(impedanceSamples);
-                }
+            // Feed samples to impedance measurement if impedance mode is active
+            if (impedanceModeActive_ && impedanceMeasurement_) {
+                impedanceMeasurement_->feedSample(packet);
             }
         }
     }

@@ -1,5 +1,6 @@
 #include "egiamp/LSLStreamer.h"
 #include "egiamp/EGIAmpClient.h"
+#include "egiamp/ElectrodePositions.h"
 
 namespace egiamp {
 
@@ -193,6 +194,16 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         } else {
             ch.append_child_value("unit", "microvolts");
         }
+
+        // Add electrode location (3D coordinates on unit sphere)
+        const ElectrodePosition* pos = getElectrodePosition(eegChannelCount, i);
+        if (pos) {
+            lsl::xml_element loc = ch.append_child("location");
+            loc.append_child_value("X", std::to_string(pos->x).c_str());
+            loc.append_child_value("Y", std::to_string(pos->y).c_str());
+            loc.append_child_value("Z", std::to_string(pos->z).c_str());
+            loc.append_child_value("unit", "normalized");  // Unit sphere
+        }
     }
 
     // Physio16 (PIB) channels
@@ -257,12 +268,12 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
     closeOutlet();
 
     // Create stream info with unique source ID for impedance
-    // Use irregular rate (0) since impedance samples only come when current is injecting
+    // Use 1 Hz rate - values are pushed every second with current known impedances
     std::string sourceId = "EGI_" + hostname +
                            "_ch" + std::to_string(channelCount) +
                            "_impedance";
     lsl::stream_info info(streamName, "Impedance", channelCount,
-                          0.0,  // Irregular rate
+                          1.0,  // 1 Hz - current impedance values pushed every second
                           lsl::cf_float32, sourceId);
 
     // Get the description root
@@ -292,12 +303,22 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
         }
         ch.append_child_value("label", label.c_str());
         ch.append_child_value("type", "Impedance");
-        ch.append_child_value("unit", "volts");
+        ch.append_child_value("unit", "kohms");
+
+        // Add electrode location (3D coordinates on unit sphere)
+        const ElectrodePosition* pos = getElectrodePosition(channelCount, i);
+        if (pos) {
+            lsl::xml_element loc = ch.append_child("location");
+            loc.append_child_value("X", std::to_string(pos->x).c_str());
+            loc.append_child_value("Y", std::to_string(pos->y).c_str());
+            loc.append_child_value("Z", std::to_string(pos->z).c_str());
+            loc.append_child_value("unit", "normalized");  // Unit sphere
+        }
     }
 
     // Add description note
     desc.append_child("description").append_child_value("note",
-        "Compliance voltage values. Divide by drive current to obtain impedance in ohms.");
+        "Electrode impedance values in kilo-ohms. Values of 1000 indicate no signal or bad electrode.");
 
     // Create outlet
     outlet_ = std::make_unique<lsl::stream_outlet>(info, SAMPLES_PER_CHUNK);

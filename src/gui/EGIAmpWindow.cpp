@@ -1,6 +1,7 @@
 #include "EGIAmpWindow.h"
 #include "ui_EGIAmpWindow.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -28,6 +29,9 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
 
     // Link button
     connect(ui->linkButton, &QPushButton::clicked, this, &EGIAmpWindow::linkAmpserver);
+
+    // Impedance mode checkbox
+    connect(ui->impedanceCheckBox, &QCheckBox::toggled, this, &EGIAmpWindow::toggleImpedanceMode);
 
     // Signal connections for cross-thread communication
     connect(this, &EGIAmpWindow::appendStatusMessage,
@@ -194,12 +198,15 @@ void EGIAmpWindow::unlockUI() {
     emit setLinkButtonText("Link");
     emit fieldsEnabled(true);
     ui->actionShutdown_Amp_Server->setEnabled(true);
+    ui->impedanceCheckBox->setEnabled(false);
+    ui->impedanceCheckBox->setChecked(false);
 }
 
 void EGIAmpWindow::lockUI() {
     emit setLinkButtonText("Unlink");
     emit fieldsEnabled(false);
     ui->actionShutdown_Amp_Server->setEnabled(false);
+    ui->impedanceCheckBox->setEnabled(true);
 }
 
 void EGIAmpWindow::shutdownAmpServer() {
@@ -246,5 +253,22 @@ void EGIAmpWindow::shutdownAmpServer() {
             "Failed to send shutdown command.\n"
             "The Amp Server may already be stopped or unreachable.",
             QMessageBox::Ok);
+    }
+}
+
+void EGIAmpWindow::toggleImpedanceMode(bool enabled) {
+    if (!client_->isStreaming()) {
+        return;
+    }
+
+    if (enabled) {
+        emit appendStatusMessage("Starting impedance mode...");
+        if (!client_->startImpedanceMode()) {
+            // Failed to start - uncheck the box
+            ui->impedanceCheckBox->setChecked(false);
+        }
+    } else {
+        emit appendStatusMessage("Stopping impedance mode...");
+        client_->stopImpedanceMode();
     }
 }
