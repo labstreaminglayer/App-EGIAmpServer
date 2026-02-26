@@ -34,6 +34,9 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     // Sample rate dropdown
     connect(ui->sampleRateComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &EGIAmpWindow::onSampleRateChanged);
+    // Sync checkbox state with the currently selected rate (connect was not yet
+    // active when populateSampleRateCombo / loadConfig set the index)
+    onSampleRateChanged(ui->sampleRateComboBox->currentIndex());
 
     // Menu connections
     connect(ui->actionQuit, &QAction::triggered, this, &EGIAmpWindow::close);
@@ -175,12 +178,15 @@ void EGIAmpWindow::linkAmpserver() {
         emit setLinkButtonText("Link");
         emit sensorLayoutUpdated("");
     } else {
-        // Link
+        // Link — disable button immediately to prevent double-click
+        ui->linkButton->setEnabled(false);
+
         auto config = getConfigFromUI();
         client_->setConfig(config);
 
         emit appendStatusMessage("Connecting to AmpServer...");
         if (!client_->connect()) {
+            ui->linkButton->setEnabled(true);
             emit error("Could not connect to AmpServer. Please check network settings "
                        "and ensure AmpServer is running.");
             return;
@@ -206,6 +212,7 @@ void EGIAmpWindow::linkAmpserver() {
         }
 
         if (!client_->startStreaming()) {
+            ui->linkButton->setEnabled(true);
             emit error("Failed to start streaming");
             client_->disconnect();
             return;
@@ -220,6 +227,7 @@ void EGIAmpWindow::displayError(QString description) {
 }
 
 void EGIAmpWindow::unlockUI() {
+    ui->linkButton->setEnabled(true);
     emit setLinkButtonText("Link");
     emit fieldsEnabled(true);
     ui->actionShutdown_Amp_Server->setEnabled(true);
@@ -230,6 +238,7 @@ void EGIAmpWindow::unlockUI() {
 }
 
 void EGIAmpWindow::lockUI() {
+    ui->linkButton->setEnabled(true);
     emit setLinkButtonText("Unlink");
     emit fieldsEnabled(false);
     ui->actionShutdown_Amp_Server->setEnabled(false);
