@@ -25,6 +25,10 @@ public:
     // Specific notification types
     void sendClientConnected(int clientId);
     void sendPhysioConnectionStatus(int status);
+    void sendAmpStarted();
+    void sendAmpStopped();
+    void sendAmpPowerOn();
+    void sendAmpPowerOff();
     void sendGTENStatus();
     void sendGTENSetTrainResult(bool success);
     void sendGTENSetWaveformResult(bool success);

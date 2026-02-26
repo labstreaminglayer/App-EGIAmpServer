@@ -114,6 +114,30 @@ void NotificationHandler::sendPhysioConnectionStatus(int status) {
     sendNotification(oss.str());
 }
 
+void NotificationHandler::sendAmpStarted() {
+    std::ostringstream oss;
+    oss << "(notification ntn_AmpStarted " << ++notificationSeqId_ << " 0 +0)";
+    sendNotification(oss.str());
+}
+
+void NotificationHandler::sendAmpStopped() {
+    std::ostringstream oss;
+    oss << "(notification ntn_AmpStopped " << ++notificationSeqId_ << " 0 +0)";
+    sendNotification(oss.str());
+}
+
+void NotificationHandler::sendAmpPowerOn() {
+    std::ostringstream oss;
+    oss << "(notification ntn_AmpPowerOn " << ++notificationSeqId_ << " 0 +0)";
+    sendNotification(oss.str());
+}
+
+void NotificationHandler::sendAmpPowerOff() {
+    std::ostringstream oss;
+    oss << "(notification ntn_AmpPowerOff " << ++notificationSeqId_ << " 0 +0)";
+    sendNotification(oss.str());
+}
+
 void NotificationHandler::sendGTENStatus() {
     const auto& state = amplifier_->state();
     std::ostringstream oss;
