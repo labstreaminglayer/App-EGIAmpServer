@@ -46,6 +46,12 @@ AmpServerConfig AmpServerConfig::loadFromFile(const std::string& filename) {
         if (auto node = settings.child("nativeformat")) {
             config.nativeFormat = node.text().as_bool(config.nativeFormat);
         }
+        if (auto node = settings.child("fastrecovery")) {
+            config.fastRecovery = node.text().as_bool(config.fastRecovery);
+        }
+        if (auto node = settings.child("aligntimestamps")) {
+            config.alignTimestamps = node.text().as_bool(config.alignTimestamps);
+        }
     }
 
     return config;
@@ -67,6 +73,8 @@ void AmpServerConfig::saveToFile(const std::string& filename) const {
     settings.append_child("samplingrate").text().set(sampleRate);
     settings.append_child("impedance").text().set(impedance);
     settings.append_child("nativeformat").text().set(nativeFormat);
+    settings.append_child("fastrecovery").text().set(fastRecovery);
+    settings.append_child("aligntimestamps").text().set(alignTimestamps);
 
     if (!doc.save_file(filename.c_str())) {
         throw ConfigError("Could not write to config file: " + filename);

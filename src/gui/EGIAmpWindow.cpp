@@ -7,6 +7,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QSpinBox>
+#include <QVariantList>
 
 EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     : QMainWindow(parent)
@@ -15,8 +16,15 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
 {
     ui->setupUi(this);
 
+    // Populate sample rate dropdown before loading config (which selects an item)
+    populateSampleRateCombo();
+
     // Load initial config
     loadConfig(configFile);
+
+    // Sample rate dropdown
+    connect(ui->sampleRateComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &EGIAmpWindow::onSampleRateChanged);
 
     // Menu connections
     connect(ui->actionQuit, &QAction::triggered, this, &EGIAmpWindow::close);
@@ -108,7 +116,9 @@ void EGIAmpWindow::loadConfig(const std::string& filename) {
         ui->notificationPort->setValue(config.notificationPort);
         ui->dataPort->setValue(config.dataPort);
         ui->amplifierId->setValue(config.amplifierId);
-        ui->sampleRateComboBox->setCurrentText(QString::number(config.sampleRate));
+        ui->sampleRateComboBox->setCurrentIndex(
+            findSampleRateIndex(config.sampleRate, config.fastRecovery));
+        ui->alignTimestampsCheckBox->setChecked(config.alignTimestamps);
     } catch (const egiamp::ConfigError& e) {
         QMessageBox::information(this, "Error",
             QString("Cannot read config file: %1").arg(e.what()), QMessageBox::Ok);
@@ -132,7 +142,12 @@ egiamp::AmpServerConfig EGIAmpWindow::getConfigFromUI() const {
     config.notificationPort = static_cast<uint16_t>(ui->notificationPort->value());
     config.dataPort = static_cast<uint16_t>(ui->dataPort->value());
     config.amplifierId = ui->amplifierId->value();
-    config.sampleRate = ui->sampleRateComboBox->currentText().toInt();
+
+    QVariantList rateData = ui->sampleRateComboBox->currentData().toList();
+    config.sampleRate = rateData[0].toInt();
+    config.fastRecovery = rateData[1].toBool();
+    config.alignTimestamps = ui->alignTimestampsCheckBox->isChecked();
+
     return config;
 }
 
@@ -170,7 +185,10 @@ void EGIAmpWindow::linkAmpserver() {
         if (client_->ampWasRunning()) {
             int detectedRate = client_->detectedSampleRate();
             if (detectedRate > 0) {
-                ui->sampleRateComboBox->setCurrentText(QString::number(detectedRate));
+                // Can't detect native vs decimated from the stream, default to decimated
+                // for ambiguous rates (500, 1000)
+                ui->sampleRateComboBox->setCurrentIndex(
+                    findSampleRateIndex(detectedRate, /*native=*/false));
                 emit appendStatusMessage(QString("Amplifier already running at %1 Hz").arg(detectedRate));
             } else {
                 emit appendStatusMessage("Amplifier already running (sample rate detection failed, using configured rate)");
@@ -200,6 +218,8 @@ void EGIAmpWindow::unlockUI() {
     ui->actionShutdown_Amp_Server->setEnabled(true);
     ui->impedanceCheckBox->setEnabled(false);
     ui->impedanceCheckBox->setChecked(false);
+    // Restore align-timestamps state based on current rate selection
+    onSampleRateChanged(ui->sampleRateComboBox->currentIndex());
 }
 
 void EGIAmpWindow::lockUI() {
@@ -207,6 +227,7 @@ void EGIAmpWindow::lockUI() {
     emit fieldsEnabled(false);
     ui->actionShutdown_Amp_Server->setEnabled(false);
     ui->impedanceCheckBox->setEnabled(true);
+    ui->alignTimestampsCheckBox->setEnabled(false);
 }
 
 void EGIAmpWindow::shutdownAmpServer() {
@@ -271,4 +292,58 @@ void EGIAmpWindow::toggleImpedanceMode(bool enabled) {
         emit appendStatusMessage("Stopping impedance mode...");
         client_->stopImpedanceMode();
     }
+}
+
+void EGIAmpWindow::populateSampleRateCombo() {
+    // Each item stores {sampleRate, isNative} as user data
+    struct RateEntry { const char* label; int rate; bool native; };
+    static constexpr RateEntry entries[] = {
+        {"250 Hz",                    250,  false},
+        {"500 Hz",                    500,  false},
+        {"500 Hz \xe2\x80\x94 Low Latency",  500,  true},
+        {"1000 Hz",                   1000, false},
+        {"1000 Hz \xe2\x80\x94 Low Latency", 1000, true},
+        {"2000 Hz",                   2000, true},
+        {"4000 Hz",                   4000, true},
+        {"8000 Hz",                   8000, true},
+    };
+
+    ui->sampleRateComboBox->clear();
+    for (const auto& e : entries) {
+        ui->sampleRateComboBox->addItem(
+            QString::fromUtf8(e.label),
+            QVariantList{e.rate, e.native});
+    }
+    ui->sampleRateComboBox->setCurrentIndex(3); // "1000 Hz" default
+}
+
+void EGIAmpWindow::onSampleRateChanged(int index) {
+    if (index < 0) return;
+    QVariantList data = ui->sampleRateComboBox->itemData(index).toList();
+    bool isNative = data[1].toBool();
+    if (isNative) {
+        ui->alignTimestampsCheckBox->setChecked(false);
+        ui->alignTimestampsCheckBox->setEnabled(false);
+    } else {
+        ui->alignTimestampsCheckBox->setChecked(true);
+        ui->alignTimestampsCheckBox->setEnabled(true);
+    }
+}
+
+int EGIAmpWindow::findSampleRateIndex(int rate, bool native) const {
+    for (int i = 0; i < ui->sampleRateComboBox->count(); ++i) {
+        QVariantList data = ui->sampleRateComboBox->itemData(i).toList();
+        if (data[0].toInt() == rate && data[1].toBool() == native) {
+            return i;
+        }
+    }
+    // Rates ≥ 2000 are always native, so a non-native lookup just means
+    // we couldn't detect the mode — find the rate regardless of mode flag.
+    for (int i = 0; i < ui->sampleRateComboBox->count(); ++i) {
+        QVariantList data = ui->sampleRateComboBox->itemData(i).toList();
+        if (data[0].toInt() == rate) {
+            return i;
+        }
+    }
+    return 3; // fallback to "1000 Hz"
 }

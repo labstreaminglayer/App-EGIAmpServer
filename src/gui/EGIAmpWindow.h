@@ -26,6 +26,7 @@ private slots:
     void linkAmpserver();
     void shutdownAmpServer();
     void toggleImpedanceMode(bool enabled);
+    void onSampleRateChanged(int index);
     void displayError(QString description);
     void unlockUI();
     void lockUI();
@@ -48,6 +49,8 @@ private:
     void saveConfig(const std::string& filename);
     void updateUIFromConfig();
     egiamp::AmpServerConfig getConfigFromUI() const;
+    void populateSampleRateCombo();
+    int findSampleRateIndex(int rate, bool native) const;
 
     Ui::EGIAmpWindow* ui;
     std::unique_ptr<egiamp::EGIAmpClient> client_;
