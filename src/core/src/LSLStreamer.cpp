@@ -195,14 +195,14 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
             ch.append_child_value("unit", "microvolts");
         }
 
-        // Add electrode location (3D coordinates on unit sphere)
+        // Add electrode location (3D coordinates in mm, converted from .sfp cm)
         const ElectrodePosition* pos = getElectrodePosition(eegChannelCount, i);
         if (pos) {
             lsl::xml_element loc = ch.append_child("location");
-            loc.append_child_value("X", std::to_string(pos->x).c_str());
-            loc.append_child_value("Y", std::to_string(pos->y).c_str());
-            loc.append_child_value("Z", std::to_string(pos->z).c_str());
-            loc.append_child_value("unit", "normalized");  // Unit sphere
+            loc.append_child_value("X", std::to_string(pos->x * 10.0f).c_str());
+            loc.append_child_value("Y", std::to_string(pos->y * 10.0f).c_str());
+            loc.append_child_value("Z", std::to_string(pos->z * 10.0f).c_str());
+            loc.append_child_value("unit", "mm");
         }
     }
 
@@ -305,14 +305,14 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
         ch.append_child_value("type", "Impedance");
         ch.append_child_value("unit", "kohms");
 
-        // Add electrode location (3D coordinates on unit sphere)
+        // Add electrode location (3D coordinates in mm, converted from .sfp cm)
         const ElectrodePosition* pos = getElectrodePosition(channelCount, i);
         if (pos) {
             lsl::xml_element loc = ch.append_child("location");
-            loc.append_child_value("X", std::to_string(pos->x).c_str());
-            loc.append_child_value("Y", std::to_string(pos->y).c_str());
-            loc.append_child_value("Z", std::to_string(pos->z).c_str());
-            loc.append_child_value("unit", "normalized");  // Unit sphere
+            loc.append_child_value("X", std::to_string(pos->x * 10.0f).c_str());
+            loc.append_child_value("Y", std::to_string(pos->y * 10.0f).c_str());
+            loc.append_child_value("Z", std::to_string(pos->z * 10.0f).c_str());
+            loc.append_child_value("unit", "mm");
         }
     }
 

@@ -9,18 +9,16 @@ Requirements:
     pip install pylsl numpy matplotlib
 
 Usage:
-    python impedance_viewer.py [--threshold 50] [--stream-name "EGI NetAmp"]
+    python impedance_viewer.py [--stream-name "EGINetAmp_51"]
 """
 
 import argparse
 import sys
 import time
-from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge
-from matplotlib.collections import PatchCollection
 import matplotlib.colors as mcolors
 
 try:
@@ -35,19 +33,25 @@ def project_3d_to_2d(x, y, z):
     Project 3D electrode coordinates to 2D using azimuthal equidistant projection.
     This preserves distances from the center (Cz) and is standard for EEG topomaps.
 
-    Input: 3D coordinates on unit sphere (X=right, Y=front, Z=up)
-    Output: 2D coordinates for plotting (x=right, y=front)
+    Input: 3D coordinates in mm (X=right, Y=front, Z=up)
+    Output: 2D coordinates for plotting (x=right, y=front), normalized to head circle
     """
+    # Normalize to unit sphere
+    r3d = np.sqrt(x*x + y*y + z*z)
+    if r3d < 1e-6:
+        return 0.0, 0.0
+    xn, yn, zn = x / r3d, y / r3d, z / r3d
+
     # Handle the vertex (Cz) case
-    if abs(z - 1.0) < 1e-6:
+    if abs(zn - 1.0) < 1e-6:
         return 0.0, 0.0
 
     # Calculate the angle from vertex (theta) and azimuth (phi)
     # theta = angle from Z axis (0 at top, pi at bottom)
-    theta = np.arccos(np.clip(z, -1.0, 1.0))
+    theta = np.arccos(np.clip(zn, -1.0, 1.0))
 
     # phi = azimuthal angle in XY plane
-    phi = np.arctan2(x, y)  # Note: atan2(x,y) so 0 is front (nose)
+    phi = np.arctan2(xn, yn)  # Note: atan2(x,y) so 0 is front (nose)
 
     # Azimuthal equidistant projection: r proportional to theta
     # Scale so that equator (theta=pi/2) maps to r=1
@@ -76,7 +80,7 @@ def parse_channel_info(inlet):
             if label:
                 labels.append(label)
 
-                # Try to get 3D location from metadata
+                # Try to get 3D location from metadata (expected in mm)
                 loc = ch.child("location")
                 if not loc.empty():
                     try:
@@ -160,15 +164,38 @@ def find_impedance_stream(stream_name=None, timeout=10):
     return inlet
 
 
-def create_head_plot(positions, threshold=50):
+def create_egi_colormap():
+    """Create EGI-style impedance colormap with 4 discrete bands.
+
+    Cyan:   0 - 50 kOhm   (good)
+    Green:  50 - 100 kOhm  (acceptable)
+    Yellow: 100 - 1000 kOhm (high)
+    Red:    1000+ kOhm      (bad / no signal)
+    """
+    cmap = mcolors.ListedColormap(['cyan', 'green', 'gold', 'red'])
+    boundaries = [0, 50, 100, 1000, 5000]
+    norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+    return cmap, norm, boundaries
+
+
+def create_head_plot(positions):
     """Create the matplotlib figure with head outline."""
     fig, ax = plt.subplots(figsize=(10, 10))
     ax.set_aspect('equal')
-    ax.set_xlim(-1.3, 1.3)
-    ax.set_ylim(-1.3, 1.3)
+
+    # Compute bounds from electrode positions with padding
+    if positions:
+        all_x = [p[0] for p in positions.values()]
+        all_y = [p[1] for p in positions.values()]
+        max_r = max(np.sqrt(x**2 + y**2) for x, y in positions.values())
+        lim = max(max_r, 1.0) + 0.2
+    else:
+        lim = 1.3
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
     ax.axis('off')
 
-    # Draw head outline
+    # Draw head outline (equator circle at r=1)
     head = Circle((0, 0), 1.0, fill=False, linewidth=2, color='black')
     ax.add_patch(head)
 
@@ -183,10 +210,8 @@ def create_head_plot(positions, threshold=50):
     ax.add_patch(ear_left)
     ax.add_patch(ear_right)
 
-    # Create colormap for impedance values
-    # Good (green) -> Warning (yellow) -> Bad (red)
-    cmap = plt.cm.RdYlGn_r  # Reversed: green=low, red=high
-    norm = mcolors.Normalize(vmin=0, vmax=threshold * 2)
+    # EGI-style colormap
+    cmap, norm, boundaries = create_egi_colormap()
 
     # Create scatter plot for electrodes
     x_coords = []
@@ -199,16 +224,15 @@ def create_head_plot(positions, threshold=50):
         labels.append(label)
 
     # Initial plot with max impedance (will be updated)
-    scatter = ax.scatter(x_coords, y_coords, c=[1000] * len(x_coords),
-                        cmap=cmap, norm=norm, s=100, edgecolors='black', linewidth=0.5)
+    scatter = ax.scatter(x_coords, y_coords, c=[5000] * len(x_coords),
+                        cmap=cmap, norm=norm, s=100, edgecolors='black', linewidth=0.5,
+                        zorder=5)
 
-    # Add colorbar
-    cbar = plt.colorbar(scatter, ax=ax, shrink=0.6, pad=0.02)
+    # Add colorbar with band labels
+    cbar = plt.colorbar(scatter, ax=ax, shrink=0.6, pad=0.02,
+                        ticks=[25, 75, 550, 3000])
     cbar.set_label('Impedance (kΩ)', fontsize=12)
-
-    # Add threshold line to colorbar
-    cbar.ax.axhline(y=threshold, color='black', linestyle='--', linewidth=1)
-    cbar.ax.text(1.5, threshold, f'{threshold} kΩ', va='center', fontsize=9)
+    cbar.ax.set_yticklabels(['0–50\n(Good)', '50–100', '100–1000', '1000+\n(Bad)'])
 
     # Title
     title = ax.set_title('Electrode Impedances\nWaiting for data...', fontsize=14)
@@ -218,12 +242,19 @@ def create_head_plot(positions, threshold=50):
                         verticalalignment='bottom', family='monospace',
                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
+    # Hover annotation (initially hidden)
+    annot = ax.annotate("", xy=(0, 0), xytext=(10, 10),
+                        textcoords="offset points",
+                        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", alpha=0.9),
+                        fontsize=10, zorder=10)
+    annot.set_visible(False)
+
     plt.tight_layout()
 
-    return fig, ax, scatter, title, stats_text, labels
+    return fig, ax, scatter, title, stats_text, labels, annot
 
 
-def update_plot(scatter, title, stats_text, impedances, labels, threshold):
+def update_plot(scatter, title, stats_text, impedances, labels):
     """Update the plot with new impedance values."""
     # Map impedances to label order
     colors = []
@@ -231,7 +262,7 @@ def update_plot(scatter, title, stats_text, impedances, labels, threshold):
         if label in impedances:
             colors.append(impedances[label])
         else:
-            colors.append(1000)  # Max value for missing channels
+            colors.append(5000)  # Max value for missing channels
 
     scatter.set_array(np.array(colors))
 
@@ -241,13 +272,15 @@ def update_plot(scatter, title, stats_text, impedances, labels, threshold):
         mean_z = np.mean(valid_impedances)
         max_z = np.max(valid_impedances)
         min_z = np.min(valid_impedances)
-        good_count = sum(1 for z in valid_impedances if z <= threshold)
-        bad_count = len(valid_impedances) - good_count
+        good_count = sum(1 for z in valid_impedances if z <= 50)
+        ok_count = sum(1 for z in valid_impedances if 50 < z <= 100)
+        bad_count = len(valid_impedances) - good_count - ok_count
 
         stats = (f"Mean: {mean_z:.1f} kΩ  |  "
                 f"Range: {min_z:.1f} - {max_z:.1f} kΩ\n"
-                f"Good (≤{threshold}): {good_count}  |  "
-                f"Bad (>{threshold}): {bad_count}")
+                f"Good (≤50): {good_count}  |  "
+                f"OK (50–100): {ok_count}  |  "
+                f"High (>100): {bad_count}")
         stats_text.set_text(stats)
 
         title.set_text(f'Electrode Impedances\n{len(valid_impedances)} channels measured')
@@ -258,8 +291,6 @@ def update_plot(scatter, title, stats_text, impedances, labels, threshold):
 
 def main():
     parser = argparse.ArgumentParser(description='Real-time impedance visualization')
-    parser.add_argument('--threshold', type=float, default=50,
-                       help='Impedance threshold in kOhms (default: 50)')
     parser.add_argument('--stream-name', type=str, default=None,
                        help='LSL stream name to connect to')
     parser.add_argument('--timeout', type=float, default=10,
@@ -277,21 +308,48 @@ def main():
     print(f"Channel count: {n_channels}")
     print(f"Channel labels: {labels[:5]}...{labels[-3:] if n_channels > 8 else ''}")
 
-    # Use positions from metadata (already filtered to stream channels)
-    stream_positions = positions
-
     # Create plot
-    fig, ax, scatter, title, stats_text, plot_labels = create_head_plot(
-        stream_positions, args.threshold)
+    fig, ax, scatter, title, stats_text, plot_labels, annot = create_head_plot(positions)
+
+    # Current impedance values (shared with hover handler)
+    impedances = {}
+
+    # Hover handler for mouseover tooltips
+    def on_hover(event):
+        if event.inaxes != ax:
+            if annot.get_visible():
+                annot.set_visible(False)
+                fig.canvas.draw_idle()
+            return
+
+        cont, ind = scatter.contains(event)
+        if cont:
+            # Get the closest point
+            idx = ind["ind"][0]
+            label = plot_labels[idx]
+            pos = scatter.get_offsets()[idx]
+            annot.xy = pos
+
+            z_val = impedances.get(label)
+            if z_val is not None:
+                text = f"{label}: {z_val:.1f} kΩ"
+            else:
+                text = f"{label}: --"
+            annot.set_text(text)
+            annot.set_visible(True)
+            fig.canvas.draw_idle()
+        else:
+            if annot.get_visible():
+                annot.set_visible(False)
+                fig.canvas.draw_idle()
+
+    fig.canvas.mpl_connect("motion_notify_event", on_hover)
 
     # Enable interactive mode
     plt.ion()
     plt.show()
 
     print("\nReceiving impedance data... Press Ctrl+C to stop.")
-
-    # Current impedance values
-    impedances = {}
 
     try:
         while plt.fignum_exists(fig.number):
@@ -305,8 +363,7 @@ def main():
                         impedances[labels[i]] = value
 
                 # Update plot
-                update_plot(scatter, title, stats_text, impedances,
-                           plot_labels, args.threshold)
+                update_plot(scatter, title, stats_text, impedances, plot_labels)
 
             # Update display
             fig.canvas.draw_idle()

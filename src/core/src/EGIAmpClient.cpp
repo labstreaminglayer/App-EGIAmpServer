@@ -96,6 +96,7 @@ bool EGIAmpClient::cmd_ImpedanceAcquisitionState() {
 
     impedanceMeasurement_->setSampleRate(config_.sampleRate);
     impedanceMeasurement_->setScalingFactor(details_.scalingFactor);
+    impedanceMeasurement_->setNetSize(getChannelCountFromNetCode(details_.netCode));
 
     // Set up the amplifier in impedance measurement state
     if (!impedanceMeasurement_->setupImpedanceState()) {
@@ -567,6 +568,7 @@ bool EGIAmpClient::startImpedanceMode() {
     });
     impedanceMeasurement_->setSampleRate(config_.sampleRate);
     impedanceMeasurement_->setScalingFactor(details_.scalingFactor);
+    impedanceMeasurement_->setNetSize(getChannelCountFromNetCode(details_.netCode));
 
     // Set up the amplifier in impedance measurement state
     if (!impedanceMeasurement_->setupImpedanceState()) {
@@ -891,6 +893,7 @@ void EGIAmpClient::readPacketFormat2() {
                                     impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
                                                                              config_.serverAddress, details_);
                                     impedanceMeasurement_->setSampleRate(config_.sampleRate);
+                                    impedanceMeasurement_->setNetSize(getChannelCountFromNetCode(details_.netCode));
                                     impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
                                 }
                             } else {

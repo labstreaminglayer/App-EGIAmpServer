@@ -4,6 +4,7 @@
 #include "AmpServerConnection.h"
 #include "AmpServerProtocol.h"
 #include "LSLStreamer.h"
+#include "SensorLayout.h"
 
 #include <atomic>
 #include <chrono>
@@ -20,12 +21,13 @@ namespace egiamp {
 using ImpedanceCallback = std::function<void(int channel, float impedanceKOhms)>;
 using ImpedanceStatusCallback = std::function<void(const std::string&)>;
 
-// Timing parameters for impedance measurement (from Net Station Impedances.plist)
+// Timing parameters for impedance measurement
+// Updated automatically by setSampleRate().
 struct ImpedanceTiming {
     double commandTime = 0.03;    // Time for command to travel to amp (seconds)
-    double settleTime = 0.0;      // Time before applying filter (seconds) - NS uses 0
-    double filterTime = 1.0;      // Filter/measurement duration (seconds)
-    int peakToPeakSampleCount = 51;  // Samples to use for peak-to-peak calculation
+    double settleTime = 0.6;     // Time before measuring (seconds)
+    double filterTime = 0.5;     // Measurement/collection duration (seconds)
+    int peakToPeakSampleCount = 100;  // Samples to use for peak-to-peak calculation
 };
 
 // Result for a single channel measurement
@@ -46,12 +48,12 @@ public:
 
     // Configuration
     void setTiming(const ImpedanceTiming& timing) { timing_ = timing; }
-    void setSampleRate(int rate) { sampleRate_ = rate; }
+    void setSampleRate(int rate);
     void setChannelCount(int count) { channelCount_ = count; }
     void setScalingFactor(float factor) { scalingFactor_ = factor; }
+    void setNetSize(int netSize);
 
-    // Set the ideal signal (expected amplitude with 0 impedance)
-    // If not set, will be estimated from first measurement
+    // Override the ideal signal for all channels (disables per-channel calibration)
     void setIdealSignal(float idealSignal) { idealSignal_ = idealSignal; }
 
     // Callbacks
@@ -86,6 +88,9 @@ public:
     // Measure COM channel (NA400/NA410 only)
     ChannelImpedance measureCOM();
 
+    // Measure all channels in a tiling set simultaneously
+    std::vector<ChannelImpedance> measureTilingSet(const TilingSet& ts);
+
 private:
     void emitStatus(const std::string& message);
     bool sendCommand(const std::string& cmd, int channel, const std::string& value);
@@ -97,14 +102,24 @@ private:
     void setReferenceDriving(bool driving);
     void setCOMDriving(bool driving);
 
-    // Collect samples for the measurement duration
+    // Collect a buffer of raw packets for the measurement duration
+    std::deque<PacketFormat2> collectSampleBuffer();
+
+    // Extract samples for a single channel from a packet buffer
+    std::vector<float> extractChannelSamples(const std::deque<PacketFormat2>& packets, int channel);
+
+    // Legacy single-channel collect (used by measureChannel)
     std::vector<float> collectSamples(int channel, int sampleCount);
 
     // Calculate peak-to-peak amplitude from samples
     float calculatePeakToPeak(const std::vector<float>& samples);
 
-    // Calculate impedance from amplitude
-    float calculateImpedance(float amplitude);
+    // Calibrate per-channel ideal signals by measuring in the all-driving state.
+    // Must be called after setupImpedanceState() and with data flowing.
+    bool calibrate();
+
+    // Calculate impedance from amplitude (uses per-channel calibrated ideal if available)
+    float calculateImpedance(float amplitude, int channel = -1);
 
     // Scanning thread function
     void scanThread(LSLStreamer& impedanceStreamer);
@@ -115,14 +130,20 @@ private:
     int sampleRate_ = 1000;
     int channelCount_ = 256;
     float scalingFactor_ = 0.0f;
-    float idealSignal_ = 0.0f;  // Will be estimated if not set
-    bool idealSignalEstimated_ = false;
+    float idealSignal_ = 0.0f;  // 0 = use calibrated or DEFAULT_IDEAL_SIGNAL
+    float meanIdealSignal_ = 0.0f;  // Mean across all normal channels from calibration
+
+    // Per-channel calibrated ideal signals (measured in all-driving state).
+    std::vector<float> calibratedIdealSignals_;
+
+    // Net size and sensor layout for tiling-based scanning
+    int netSize_ = 0;
+    const SensorLayout* layout_ = nullptr;
 
     // Sample buffer for collecting measurement data
     std::mutex sampleMutex_;
     std::deque<PacketFormat2> sampleBuffer_;
-    int currentMeasuringChannel_ = -1;  // Channel currently being measured (-1 = none)
-    bool collectingSamples_ = false;
+    std::atomic<bool> collectingSamples_{false};
 
     // Scanning state
     std::atomic<bool> scanning_{false};

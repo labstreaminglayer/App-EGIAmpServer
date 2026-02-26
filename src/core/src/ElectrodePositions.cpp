@@ -1,76 +1,99 @@
 #include "egiamp/ElectrodePositions.h"
+#include "egiamp/EmbeddedResources.h"
 
-#include <cmath>
+#include <map>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace egiamp {
 
 namespace {
 
-// Helper to generate positions on a geodesic sphere
-// Uses Fibonacci lattice for even distribution
-constexpr float PI = 3.14159265358979323846f;
+// Parse an .sfp file into a vector of ElectrodePosition.
+// Skips Fid* lines, parses E{N} and Cz entries.
+// Returns positions indexed 0..N-1 for E1..EN, with Cz appended as last element.
+std::vector<ElectrodePosition> parseSfpData(std::string_view data) {
+    std::vector<ElectrodePosition> positions;
 
-ElectrodePosition sphericalToCartesian(float theta, float phi) {
-    // theta: angle from top (0 = vertex, PI = bottom)
-    // phi: azimuthal angle (0 = front, PI/2 = right ear)
-    float sinTheta = std::sin(theta);
-    return {
-        sinTheta * std::sin(phi),   // X: positive right
-        sinTheta * std::cos(phi),   // Y: positive front (nose)
-        std::cos(theta)             // Z: positive up (vertex)
-    };
-}
-
-// Generate positions using Fibonacci lattice on a sphere
-// This gives a good approximation of geodesic electrode placement
-template<size_t N>
-std::array<ElectrodePosition, N> generateGeodesicPositions() {
-    std::array<ElectrodePosition, N> positions;
-
-    // Golden ratio for Fibonacci lattice
-    const float goldenRatio = (1.0f + std::sqrt(5.0f)) / 2.0f;
-    const float goldenAngle = 2.0f * PI / (goldenRatio * goldenRatio);
-
-    // Electrodes are typically placed on upper hemisphere with some neck coverage
-    // EGI nets cover roughly from Cz down to just below ear level
-    const float minZ = -0.3f;  // Lowest point (below ear level)
-    const float maxZ = 1.0f;   // Vertex (Cz)
-
-    for (size_t i = 0; i < N - 1; i++) {  // N-1 regular electrodes, last is Cz
-        // Distribute evenly in Z (height), more dense near top
-        float t = static_cast<float>(i) / static_cast<float>(N - 2);
-
-        // Use square root distribution for more even spherical coverage
-        float z = maxZ - (maxZ - minZ) * std::sqrt(t);
-
-        // Azimuthal angle using golden angle for even distribution
-        float phi = goldenAngle * static_cast<float>(i);
-
-        // Convert to full 3D position
-        float r = std::sqrt(1.0f - z * z);  // Radius at this height on unit sphere
-        positions[i] = {
-            r * std::sin(phi),   // X
-            r * std::cos(phi),   // Y
-            z                     // Z
-        };
+    // First pass: find max electrode number to size the vector
+    int maxE = 0;
+    bool hasCz = false;
+    {
+        std::istringstream iss{std::string(data)};
+        std::string label;
+        float x, y, z;
+        while (iss >> label >> x >> y >> z) {
+            if (label.size() > 1 && label[0] == 'E') {
+                int num = std::stoi(label.substr(1));
+                if (num > maxE) maxE = num;
+            } else if (label == "Cz") {
+                hasCz = true;
+            }
+        }
     }
 
-    // Last electrode is always Cz at vertex
-    positions[N - 1] = {0.0f, 0.0f, 1.0f};
+    int totalSize = hasCz ? maxE + 1 : maxE;
+    positions.resize(totalSize);
+
+    // Second pass: store positions
+    {
+        std::istringstream iss{std::string(data)};
+        std::string label;
+        float x, y, z;
+        while (iss >> label >> x >> y >> z) {
+            if (label.size() > 1 && label[0] == 'E') {
+                int num = std::stoi(label.substr(1));
+                if (num >= 1 && num <= maxE) {
+                    positions[num - 1] = {x, y, z};
+                }
+            } else if (label == "Cz" && hasCz) {
+                positions[maxE] = {x, y, z};
+            }
+        }
+    }
 
     return positions;
 }
 
+struct PositionCache {
+    std::mutex mutex;
+    std::map<int, std::vector<ElectrodePosition>> entries;
+};
+
+PositionCache& getCache() {
+    static PositionCache cache;
+    return cache;
+}
+
+const std::vector<ElectrodePosition>* lookupOrParse(int base) {
+    auto& cache = getCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+
+    auto it = cache.entries.find(base);
+    if (it != cache.entries.end()) {
+        return &it->second;
+    }
+
+    // Map base net size to the appropriate montage resource.
+    // We always use the extended variant (includes Cz) so the array
+    // covers both base and base+1 net sizes.
+    std::string_view sfp;
+    switch (base) {
+        case 32:  sfp = resources::montage_32;  break;  // 32 E-channels + Cz = 33 positions
+        case 64:  sfp = resources::montage_65;  break;
+        case 128: sfp = resources::montage_129; break;
+        case 256: sfp = resources::montage_257; break;
+        default: return nullptr;
+    }
+
+    auto [inserted, _] = cache.entries.emplace(base, parseSfpData(sfp));
+    return &inserted->second;
+}
+
 } // anonymous namespace
-
-// Pre-generated electrode positions
-// Note: These are algorithmic approximations. For clinical accuracy,
-// use the official EGI .sfp coordinate files for your specific net.
-
-const std::array<ElectrodePosition, 257> GSN256_POSITIONS = generateGeodesicPositions<257>();
-const std::array<ElectrodePosition, 129> GSN128_POSITIONS = generateGeodesicPositions<129>();
-const std::array<ElectrodePosition, 65> GSN64_POSITIONS = generateGeodesicPositions<65>();
-const std::array<ElectrodePosition, 33> GSN32_POSITIONS = generateGeodesicPositions<33>();
 
 const ElectrodePosition* getElectrodePosition(int netSize, int channelIndex) {
     size_t count;
@@ -82,27 +105,25 @@ const ElectrodePosition* getElectrodePosition(int netSize, int channelIndex) {
 }
 
 const ElectrodePosition* getElectrodePositions(int netSize, size_t& count) {
+    int base;
     switch (netSize) {
-        case 256:
-        case 257:
-            count = 257;
-            return GSN256_POSITIONS.data();
-        case 128:
-        case 129:
-            count = 129;
-            return GSN128_POSITIONS.data();
-        case 64:
-        case 65:
-            count = 65;
-            return GSN64_POSITIONS.data();
-        case 32:
-        case 33:
-            count = 33;
-            return GSN32_POSITIONS.data();
+        case 256: case 257: base = 256; break;
+        case 128: case 129: base = 128; break;
+        case 64:  case 65:  base = 64;  break;
+        case 32:  case 33:  base = 32;  break;
         default:
             count = 0;
             return nullptr;
     }
+
+    const auto* vec = lookupOrParse(base);
+    if (!vec || vec->empty()) {
+        count = 0;
+        return nullptr;
+    }
+
+    count = vec->size();
+    return vec->data();
 }
 
 } // namespace egiamp
