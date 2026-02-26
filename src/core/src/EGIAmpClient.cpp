@@ -364,6 +364,9 @@ void EGIAmpClient::haltAmplifier() {
     streamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
     stopFlag_ = false;
+    streamLost_ = false;
+    ampRestarted_ = false;
+    recoveryAttempts_ = 0;
 }
 
 bool EGIAmpClient::startStreaming() {
@@ -532,6 +535,7 @@ bool EGIAmpClient::startStreaming() {
 
 void EGIAmpClient::stopStreaming() {
     stopFlag_ = true;
+    recoveryCv_.notify_all();  // Wake reader thread if blocked on recovery
 
     if (readerThread_) {
         readerThread_->join();
@@ -659,8 +663,19 @@ void EGIAmpClient::run() {
 
 void EGIAmpClient::processNotifications() {
     auto& stream = connection_.notificationStream();
+    bool ampStopped = false;
+    bool pendingRecovery = false;  // Set when stop+poweroff sequence detected
 
     while (!stopFlag_) {
+        // If stop+poweroff was detected and reader has noticed stream loss,
+        // proactively reinitialize the amp with our original settings
+        if (pendingRecovery && streamLost_) {
+            pendingRecovery = false;
+            ampStopped = false;
+            attemptRecovery(true);
+            continue;
+        }
+
         stream.clear();  // Reset stream state after any prior timeout
         connection_.setNotificationStreamTimeout(std::chrono::seconds(1));
         char response[4096];
@@ -675,9 +690,29 @@ void EGIAmpClient::processNotifications() {
             emitStatus("__________________________\n  Notification Received\n    " +
                        notification + "\n__________________________\n");
 
-            // Check for amp restart - sample rate may have changed
-            if (notification.find("ntn_AmpStarted") != std::string::npos) {
-                sampleRateChangeDetected_ = true;
+            if (notification.find("ntn_AmpStopped") != std::string::npos) {
+                ampStopped = true;
+            } else if (notification.find("ntn_AmpPowerOff") != std::string::npos) {
+                if (ampStopped) {
+                    pendingRecovery = true;
+                }
+            } else if (notification.find("ntn_AmpStarted") != std::string::npos) {
+                if (pendingRecovery && streamLost_) {
+                    // Stop+poweroff was pending but amp restarted externally before
+                    // we could reinitialize — use passive recovery instead
+                    pendingRecovery = false;
+                    ampStopped = false;
+                    attemptRecovery(false);
+                } else if (streamLost_) {
+                    // Stream died, amp restarted without power cycle — passive recovery
+                    ampStopped = false;
+                    attemptRecovery(false);
+                } else {
+                    // Normal restart while stream is alive (e.g. sample rate change)
+                    ampStopped = false;
+                    pendingRecovery = false;
+                    sampleRateChangeDetected_ = true;
+                }
             }
         }
     }
@@ -699,262 +734,472 @@ void EGIAmpClient::readPacketFormat2() {
     stream.clear();
     emitStatus("Starting stream.\n");
 
-    while (stream.good() && !stopFlag_) {
-        AmpDataPacketHeader header;
-        stream.clear();
-        connection_.setDataStreamTimeout(std::chrono::seconds(5));
-        stream.read(reinterpret_cast<char*>(&header), sizeof(header));
+    while (!stopFlag_) {
+        // Inner read loop — reads packets until stream dies or stopFlag
+        while (stream.good() && !stopFlag_) {
+            AmpDataPacketHeader header;
+            stream.clear();
+            connection_.setDataStreamTimeout(std::chrono::seconds(5));
+            stream.read(reinterpret_cast<char*>(&header), sizeof(header));
 
-        header.ampID = big_to_native(header.ampID);
-        header.length = big_to_native(header.length);
+            header.ampID = big_to_native(header.ampID);
+            header.length = big_to_native(header.length);
 
-        int nSamples = header.length / sizeof(PacketFormat2);
-        int uniquePackets = 0;
+            int nSamples = header.length / sizeof(PacketFormat2);
+            int uniquePackets = 0;
 
-        for (int s = 0; s < nSamples && stream.good(); s++) {
-            PacketFormat2 packet;
-            stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
+            for (int s = 0; s < nSamples && stream.good(); s++) {
+                PacketFormat2 packet;
+                stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
 
-            if (!streamer_.hasOutlet()) {
-                // Determine channel count and sensor from net code
-                details_.netCode = static_cast<NetCode>(packet.netCode);
-                int detectedChannels = getChannelCountFromNetCode(details_.netCode);
-                if (detectedChannels > 0) {
-                    nChannels = detectedChannels;
-                }
+                if (!streamer_.hasOutlet()) {
+                    // Determine channel count and sensor from net code
+                    details_.netCode = static_cast<NetCode>(packet.netCode);
+                    int detectedChannels = getChannelCountFromNetCode(details_.netCode);
+                    if (detectedChannels > 0) {
+                        nChannels = detectedChannels;
+                    }
 
-                emitStatus(std::string("Sensor: ") + netCodeName(details_.netCode) + "\n");
-                emitSensor(details_.netCode);
+                    emitStatus(std::string("Sensor: ") + netCodeName(details_.netCode) + "\n");
+                    emitSensor(details_.netCode);
 
-                // Use the pre-queried Physio16 connection status
-                // (queried in startStreaming() before notification thread started)
-                int physioChannelCount = 0;
-                if (physioConnectionStatus_ == 1 || physioConnectionStatus_ == 2) {
-                    physioChannelCount = 16;
-                } else if (physioConnectionStatus_ == 3) {
-                    physioChannelCount = 32;
-                }
+                    // Use the pre-queried Physio16 connection status
+                    // (queried in startStreaming() or reQueryPhysioStatus())
+                    int physioChannelCount = 0;
+                    if (physioConnectionStatus_ == 1 || physioConnectionStatus_ == 2) {
+                        physioChannelCount = 16;
+                    } else if (physioConnectionStatus_ == 3) {
+                        physioChannelCount = 32;
+                    }
 
-                constexpr int dinChannelCount = 1;  // Single channel with raw 16-bit value
-                emitChannelCount(nChannels + physioChannelCount + dinChannelCount);
+                    constexpr int dinChannelCount = 1;  // Single channel with raw 16-bit value
+                    emitChannelCount(nChannels + physioChannelCount + dinChannelCount);
 
-                // Create LSL outlet for EEG (+ Physio if connected + DIN)
-                std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                streamer_.createOutlet(streamName, nChannels, physioChannelCount, dinChannelCount,
-                                       config_.sampleRate, config_.serverAddress, details_,
-                                       config_.nativeFormat);
+                    // Create LSL outlet for EEG (+ Physio if connected + DIN)
+                    std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                    streamer_.createOutlet(streamName, nChannels, physioChannelCount, dinChannelCount,
+                                           config_.sampleRate, config_.serverAddress, details_,
+                                           config_.nativeFormat);
 
-                // Apply timestamp offset for filter delay compensation if enabled
-                if (config_.alignTimestamps) {
-                    double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
-                    streamer_.setTimestampOffset(delaySeconds);
-                    if (delaySeconds > 0) {
-                        emitStatus("Timestamp alignment enabled: " +
-                                   std::to_string(static_cast<int>(delaySeconds * 1000)) + " ms offset.\n");
+                    // Apply timestamp offset for filter delay compensation if enabled
+                    if (config_.alignTimestamps) {
+                        double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
+                        streamer_.setTimestampOffset(delaySeconds);
+                        if (delaySeconds > 0) {
+                            emitStatus("Timestamp alignment enabled: " +
+                                       std::to_string(static_cast<int>(delaySeconds * 1000)) + " ms offset.\n");
+                        }
+                        if (ampRestarted_ && !weInitializedAmp_) {
+                            emitStatus("Warning: After passive recovery, timestamp alignment may be inaccurate "
+                                       "(unknown if external app used native or decimated mode).\n");
+                        }
+                    }
+
+                    // Create LSL outlet for impedance if enabled and start scanning
+                    if (config_.impedance && impedanceMeasurement_) {
+                        std::string impedanceStreamName = streamName + " Impedance";
+                        impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
+                                                                 config_.serverAddress, details_);
+                        emitStatus("Impedance stream created.\n");
+
+                        // Configure and start the impedance measurement
+                        impedanceMeasurement_->setChannelCount(nChannels);
+                        impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
+                        emitStatus("Impedance scanning started.\n");
+                        impedanceModeActive_ = true;
                     }
                 }
 
-                // Create LSL outlet for impedance if enabled and start scanning
-                if (config_.impedance && impedanceMeasurement_) {
-                    std::string impedanceStreamName = streamName + " Impedance";
-                    impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
-                                                             config_.serverAddress, details_);
-                    emitStatus("Impedance stream created.\n");
+                // Check for dropped or duplicate packets
+                if (packet.packetCounter != 0 &&
+                    packet.packetCounter != lastPacketCounter + 1 &&
+                    packet.packetCounter != lastPacketCounter &&
+                    lastPacketCounter != 0) {
+                    emitStatus("Packet(s) Dropped: " +
+                               std::to_string(packet.packetCounter - lastPacketCounter));
+                } else if (firstPacketReceived && packet.packetCounter == lastPacketCounter) {
+                    // For sample rates < 1000, duplicates are sent - skip them
+                    continue;
+                }
 
-                    // Configure and start the impedance measurement
-                    impedanceMeasurement_->setChannelCount(nChannels);
-                    impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
-                    emitStatus("Impedance scanning started.\n");
-                    impedanceModeActive_ = true;
+                if (lastPacketCounter == 0 && !firstPacketReceived) {
+                    emitStatus("Stream Started.\n");
+                }
+
+                if (lastPacketCounter == 0) {
+                    firstPacketReceived = true;
+                }
+
+                lastPacketCounter = packet.packetCounter;
+                uniquePackets++;
+
+                // Sample rate change detection
+                if (sampleRateChangeDetected_ && !measuringNewRate) {
+                    // Start measuring new rate
+                    measuringNewRate = true;
+                    rateCheckStartTimestamp = packet.timeStamp;
+                    rateCheckStartCounter = packet.packetCounter;
+                    rateCheckSampleCount = 0;
+                    emitStatus("Amp restarted detected, measuring new sample rate...\n");
+                }
+
+                if (measuringNewRate) {
+                    rateCheckSampleCount++;
+                    if (rateCheckSampleCount >= RATE_CHECK_SAMPLES) {
+                        // Calculate new sample rate
+                        uint64_t durationUs = packet.timeStamp - rateCheckStartTimestamp;
+                        if (durationUs > 0) {
+                            double durationSec = static_cast<double>(durationUs) / 1000000.0;
+                            double measuredRate = (rateCheckSampleCount - 1) / durationSec;
+
+                            // Snap to standard rates (250, 500, 1000, 2000, 4000, 8000)
+                            int newRate;
+                            if (measuredRate < 375) newRate = 250;
+                            else if (measuredRate < 750) newRate = 500;
+                            else if (measuredRate < 1500) newRate = 1000;
+                            else if (measuredRate < 3000) newRate = 2000;
+                            else if (measuredRate < 6000) newRate = 4000;
+                            else newRate = 8000;
+
+                            if (newRate != config_.sampleRate) {
+                                emitStatus("Sample rate changed from " +
+                                           std::to_string(config_.sampleRate) + " Hz to " +
+                                           std::to_string(newRate) + " Hz, recreating LSL outlets...\n");
+                                config_.sampleRate = newRate;
+
+                                // Recreate LSL outlets with new rate
+                                streamer_.closeOutlet();
+                                std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                                int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
+                                                    (physioConnectionStatus_ > 0) ? 16 : 0;
+                                constexpr int dinChCount = 1;  // Single channel with raw 16-bit value
+                                streamer_.createOutlet(streamName, nChannels, physioChCount, dinChCount,
+                                                       config_.sampleRate, config_.serverAddress, details_,
+                                                       config_.nativeFormat);
+
+                                // Apply timestamp offset for filter delay compensation if enabled
+                                if (config_.alignTimestamps) {
+                                    double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
+                                    streamer_.setTimestampOffset(delaySeconds);
+                                }
+
+                                // Recreate impedance outlet and restart scanning if active
+                                if (impedanceModeActive_ && impedanceMeasurement_) {
+                                    impedanceMeasurement_->stop();
+                                    impedanceStreamer_.closeOutlet();
+                                    std::string impedanceStreamName = streamName + " Impedance";
+                                    impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
+                                                                             config_.serverAddress, details_);
+                                    impedanceMeasurement_->setSampleRate(config_.sampleRate);
+                                    impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
+                                }
+                            } else {
+                                emitStatus("Sample rate unchanged at " +
+                                           std::to_string(config_.sampleRate) + " Hz\n");
+                            }
+                        }
+                        measuringNewRate = false;
+                        sampleRateChangeDetected_ = false;
+                    }
+                }
+
+                // Timestamp logging (periodic)
+                if (lastTimeStamp_ != 0 &&
+                    (packet.packetCounter % (config_.sampleRate / 2)) == 0) {
+                    lastTimeStamp_ = packet.timeStamp;
+                    lastPacketCounterWithTimeStamp_ = packet.packetCounter;
+                } else if (lastTimeStamp_ == 0) {
+                    emitStatus("Time Stamp: " + std::to_string(packet.timeStamp));
+                    lastTimeStamp_ = packet.timeStamp;
+                    lastPacketCounterWithTimeStamp_ = packet.packetCounter;
+                }
+
+                // Push sample to EEG stream (PacketFormat2 is little endian natively)
+                int physioChannels = (physioConnectionStatus_ == 3) ? 32 :
+                                     (physioConnectionStatus_ > 0) ? 16 : 0;
+
+                if (config_.nativeFormat) {
+                    // Native format: push raw int32 ADC counts
+                    std::vector<int32_t> rawSamples;
+                    rawSamples.reserve(nChannels + physioChannels + 1);
+
+                    for (int ch = 0; ch < nChannels; ch++) {
+                        rawSamples.push_back(packet.eegData[ch]);
+                    }
+
+                    // Add PIB1 channels (if port 1 connected: status 1 or 3)
+                    if (physioConnectionStatus_ & 0x01) {
+                        for (int ch = 0; ch < 16; ch++) {
+                            rawSamples.push_back(packet.pib1_Data[ch]);
+                        }
+                    }
+
+                    // Add PIB2 channels (if port 2 connected: status 2 or 3)
+                    if (physioConnectionStatus_ & 0x02) {
+                        for (int ch = 0; ch < 16; ch++) {
+                            rawSamples.push_back(packet.pib2_Data[ch]);
+                        }
+                    }
+
+                    // Add DIN channel (raw 16-bit value)
+                    rawSamples.push_back(static_cast<int32_t>(packet.digitalInputs));
+
+                    streamer_.pushSampleInt32(rawSamples);
+                } else {
+                    // Default: convert to float microvolts
+                    std::vector<float> eegSamples;
+                    eegSamples.reserve(nChannels + physioChannels + 1);
+
+                    for (int ch = 0; ch < nChannels; ch++) {
+                        eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
+                                             details_.scalingFactor);
+                    }
+
+                    // Add PIB1 channels (if port 1 connected: status 1 or 3)
+                    // Channels 1-8 use negative scaling, 9-16 use positive scaling
+                    if (physioConnectionStatus_ & 0x01) {
+                        for (int ch = 0; ch < 8; ch++) {
+                            eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
+                                                 PHYSIO_SCALING_1_8);
+                        }
+                        for (int ch = 8; ch < 16; ch++) {
+                            eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
+                                                 PHYSIO_SCALING_9_16);
+                        }
+                    }
+
+                    // Add PIB2 channels (if port 2 connected: status 2 or 3)
+                    // Channels 1-8 use negative scaling, 9-16 use positive scaling
+                    if (physioConnectionStatus_ & 0x02) {
+                        for (int ch = 0; ch < 8; ch++) {
+                            eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
+                                                 PHYSIO_SCALING_1_8);
+                        }
+                        for (int ch = 8; ch < 16; ch++) {
+                            eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
+                                                 PHYSIO_SCALING_9_16);
+                        }
+                    }
+
+                    // Add DIN channel (raw 16-bit value)
+                    eegSamples.push_back(static_cast<float>(packet.digitalInputs));
+
+                    streamer_.pushSample(eegSamples);
+                }
+
+                // Feed samples to impedance measurement if impedance mode is active
+                if (impedanceModeActive_ && impedanceMeasurement_) {
+                    impedanceMeasurement_->feedSample(packet);
                 }
             }
+        }
 
-            // Check for dropped or duplicate packets
-            if (packet.packetCounter != 0 &&
-                packet.packetCounter != lastPacketCounter + 1 &&
-                packet.packetCounter != lastPacketCounter &&
-                lastPacketCounter != 0) {
-                emitStatus("Packet(s) Dropped: " +
-                           std::to_string(packet.packetCounter - lastPacketCounter));
-            } else if (firstPacketReceived && packet.packetCounter == lastPacketCounter) {
-                // For sample rates < 1000, duplicates are sent - skip them
+        // Inner loop exited — stream lost or stopFlag
+        if (stopFlag_) {
+            break;
+        }
+
+        // Stream lost — wait for notification thread to recover
+        emitError("The stream was lost. Waiting for amplifier restart...\n");
+        streamLost_ = true;
+
+        {
+            std::unique_lock<std::mutex> lock(recoveryMutex_);
+            bool recovered = recoveryCv_.wait_for(lock, std::chrono::seconds(120), [this] {
+                return ampRestarted_.load() || stopFlag_.load();
+            });
+
+            if (!recovered || stopFlag_) {
+                emitError("Recovery timed out. Stopping.");
+                break;
+            }
+        }
+
+        // Recovery succeeded — reset local state for re-entry into inner loop
+        emitStatus("Stream recovered. Resuming data reading.\n");
+        lastPacketCounter = 0;
+        firstPacketReceived = false;
+        measuringNewRate = false;
+        rateCheckSampleCount = 0;
+        lastTimeStamp_ = 0;
+        lastPacketCounterWithTimeStamp_ = 0;
+        ampRestarted_ = false;
+        nChannels = details_.channelCount;
+
+        // attemptRecovery() reconnected the data stream and sent cmd_ListenToAmp.
+        // If settings changed, the outlet was closed and !streamer_.hasOutlet()
+        // will trigger recreation on first packet. Otherwise we reuse the outlet.
+        stream.clear();
+    }
+}
+
+bool EGIAmpClient::attemptRecovery(bool reinitialize) {
+    int attempt = ++recoveryAttempts_;
+    if (attempt > 5) {
+        emitError("Maximum recovery attempts (5) exceeded. Giving up.");
+        stopFlag_ = true;
+        recoveryCv_.notify_all();
+        return false;
+    }
+
+    emitStatus("Attempting stream recovery (attempt " + std::to_string(attempt) + "/5)...\n");
+
+    try {
+        int previousRate = config_.sampleRate;
+        int previousPhysioStatus = physioConnectionStatus_;
+
+        if (reinitialize) {
+            // Proactive recovery: reinitialize the amp with our original settings.
+            // initAmplifier() uses only the command stream, which is safe while the
+            // reader thread is still trying to read from the data stream.
+            emitStatus("Reinitializing amplifier with original settings...\n");
+            initAmplifier();
+            weInitializedAmp_ = true;
+
+            // Wait for reader thread to detect stream loss before touching data stream.
+            // The reader has a 5-second timeout, so this resolves quickly.
+            for (int i = 0; i < 100 && !streamLost_ && !stopFlag_; i++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            if (stopFlag_) return false;
+            if (!streamLost_) {
+                emitError("Reader thread did not detect stream loss within timeout.");
+                return false;
+            }
+        }
+
+        // At this point, streamLost_ is true and reader thread is blocked on CV.
+        // Safe to touch the data stream.
+
+        // Reconnect data stream
+        if (!connection_.reconnectDataStream()) {
+            emitError("Failed to reconnect data stream during recovery.");
+            return false;
+        }
+
+        bool needsNewOutlet = false;
+
+        if (!reinitialize) {
+            // Passive recovery: detect the sample rate set by external app
+            int newRate = detectSampleRate();
+            if (newRate > 0) {
+                config_.sampleRate = newRate;
+                if (newRate != previousRate) {
+                    emitStatus("Sample rate changed from " + std::to_string(previousRate) +
+                               " Hz to " + std::to_string(newRate) + " Hz during recovery.\n");
+                    needsNewOutlet = true;
+                }
+            } else {
+                emitStatus("Warning: Could not detect sample rate after recovery, keeping " +
+                           std::to_string(config_.sampleRate) + " Hz\n");
+            }
+
+            // Even when the rate matches, the mode (native vs decimated) might differ.
+            // Close the outlet when we can't confirm the mode is the same.
+            if (!needsNewOutlet && streamer_.hasOutlet()) {
+                bool weUseNative = config_.sampleRate > 1000 ||
+                                   (config_.fastRecovery && config_.sampleRate >= 500);
+                if (config_.sampleRate == 1000) {
+                    // At 1000 Hz, there is no way to distinguish native from decimated
+                    // in the data stream. Close to be safe.
+                    needsNewOutlet = true;
+                    emitStatus("Recreating outlet: cannot confirm mode match at 1000 Hz.\n");
+                } else if (config_.sampleRate == 500 && weUseNative) {
+                    // Net Station always uses decimated 500 Hz, but we use native.
+                    needsNewOutlet = true;
+                    emitStatus("Recreating outlet: our native 500 Hz vs external decimated 500 Hz.\n");
+                }
+                // 250 Hz: only decimated mode exists — always matches
+                // 500 Hz decimated: Net Station also uses decimated — matches
+                // 2000+ Hz: only native mode exists — always matches
+            }
+
+            weInitializedAmp_ = false;
+        }
+        // When reinitializing, settings are guaranteed to match — keep outlet
+
+        // Re-query Physio16 status (also consumes any queued notifications
+        // from initAmplifier() while looking for the physio response)
+        reQueryPhysioStatus();
+
+        // If physio connection changed, channel count in the outlet is wrong
+        if (physioConnectionStatus_ != previousPhysioStatus) {
+            needsNewOutlet = true;
+            emitStatus("Physio16 connection changed, recreating outlet.\n");
+        }
+
+        // Disable impedance mode if it was active (restart changes amp config)
+        if (impedanceModeActive_) {
+            emitStatus("Disabling impedance mode after recovery (amp restart changes configuration).\n");
+            if (impedanceMeasurement_) {
+                impedanceMeasurement_->stop();
+                impedanceMeasurement_.reset();
+            }
+            impedanceStreamer_.closeOutlet();
+            impedanceModeActive_ = false;
+        }
+
+        if (needsNewOutlet) {
+            streamer_.closeOutlet();
+        } else if (streamer_.hasOutlet()) {
+            emitStatus("Reusing existing LSL outlet (settings unchanged).\n");
+        }
+
+        // Start listening for data on the new stream
+        connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+
+        // Signal recovery to reader thread
+        streamLost_ = false;
+        ampRestarted_ = true;
+        recoveryAttempts_ = 0;
+        recoveryCv_.notify_all();
+
+        emitStatus("Stream recovery successful.\n");
+        return true;
+
+    } catch (const std::exception& ex) {
+        emitError(std::string("Recovery attempt failed: ") + ex.what());
+        return false;
+    } catch (...) {
+        emitError("Recovery attempt failed with unknown error.");
+        return false;
+    }
+}
+
+void EGIAmpClient::reQueryPhysioStatus() {
+    try {
+        connection_.sendCommand("cmd_GetPhysioConnectionStatus", config_.amplifierId, 0, "0");
+
+        auto& notifStream = connection_.notificationStream();
+        std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
+
+        for (int attempt = 0; attempt < 10; attempt++) {
+            notifStream.clear();
+            connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
+            char notifBuffer[4096];
+            notifStream.getline(notifBuffer, sizeof(notifBuffer));
+
+            if (!notifStream.good()) {
                 continue;
             }
 
-            if (lastPacketCounter == 0 && !firstPacketReceived) {
-                emitStatus("Stream Started.\n");
+            std::string notification(notifBuffer);
+            std::smatch match;
+            if (std::regex_search(notification, match, statusRegex)) {
+                physioConnectionStatus_ = std::stoi(match[1].str());
+                emitStatus("Physio16 connection status after recovery: " +
+                           std::to_string(physioConnectionStatus_) + "\n");
+                return;
             }
-
-            if (lastPacketCounter == 0) {
-                firstPacketReceived = true;
-            }
-
-            lastPacketCounter = packet.packetCounter;
-            uniquePackets++;
-
-            // Sample rate change detection
-            if (sampleRateChangeDetected_ && !measuringNewRate) {
-                // Start measuring new rate
-                measuringNewRate = true;
-                rateCheckStartTimestamp = packet.timeStamp;
-                rateCheckStartCounter = packet.packetCounter;
-                rateCheckSampleCount = 0;
-                emitStatus("Amp restarted detected, measuring new sample rate...\n");
-            }
-
-            if (measuringNewRate) {
-                rateCheckSampleCount++;
-                if (rateCheckSampleCount >= RATE_CHECK_SAMPLES) {
-                    // Calculate new sample rate
-                    uint64_t durationUs = packet.timeStamp - rateCheckStartTimestamp;
-                    if (durationUs > 0) {
-                        double durationSec = static_cast<double>(durationUs) / 1000000.0;
-                        double measuredRate = (rateCheckSampleCount - 1) / durationSec;
-
-                        // Snap to standard rates (250, 500, 1000, 2000, 4000, 8000)
-                        int newRate;
-                        if (measuredRate < 375) newRate = 250;
-                        else if (measuredRate < 750) newRate = 500;
-                        else if (measuredRate < 1500) newRate = 1000;
-                        else if (measuredRate < 3000) newRate = 2000;
-                        else if (measuredRate < 6000) newRate = 4000;
-                        else newRate = 8000;
-
-                        if (newRate != config_.sampleRate) {
-                            emitStatus("Sample rate changed from " +
-                                       std::to_string(config_.sampleRate) + " Hz to " +
-                                       std::to_string(newRate) + " Hz, recreating LSL outlets...\n");
-                            config_.sampleRate = newRate;
-
-                            // Recreate LSL outlets with new rate
-                            streamer_.closeOutlet();
-                            std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
-                            int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
-                                                (physioConnectionStatus_ > 0) ? 16 : 0;
-                            constexpr int dinChCount = 1;  // Single channel with raw 16-bit value
-                            streamer_.createOutlet(streamName, nChannels, physioChCount, dinChCount,
-                                                   config_.sampleRate, config_.serverAddress, details_,
-                                                   config_.nativeFormat);
-
-                            // Apply timestamp offset for filter delay compensation if enabled
-                            if (config_.alignTimestamps) {
-                                double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
-                                streamer_.setTimestampOffset(delaySeconds);
-                            }
-
-                            // Recreate impedance outlet and restart scanning if active
-                            if (impedanceModeActive_ && impedanceMeasurement_) {
-                                impedanceMeasurement_->stop();
-                                impedanceStreamer_.closeOutlet();
-                                std::string impedanceStreamName = streamName + " Impedance";
-                                impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
-                                                                         config_.serverAddress, details_);
-                                impedanceMeasurement_->setSampleRate(config_.sampleRate);
-                                impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
-                            }
-                        } else {
-                            emitStatus("Sample rate unchanged at " +
-                                       std::to_string(config_.sampleRate) + " Hz\n");
-                        }
-                    }
-                    measuringNewRate = false;
-                    sampleRateChangeDetected_ = false;
-                }
-            }
-
-            // Timestamp logging (periodic)
-            if (lastTimeStamp_ != 0 &&
-                (packet.packetCounter % (config_.sampleRate / 2)) == 0) {
-                lastTimeStamp_ = packet.timeStamp;
-                lastPacketCounterWithTimeStamp_ = packet.packetCounter;
-            } else if (lastTimeStamp_ == 0) {
-                emitStatus("Time Stamp: " + std::to_string(packet.timeStamp));
-                lastTimeStamp_ = packet.timeStamp;
-                lastPacketCounterWithTimeStamp_ = packet.packetCounter;
-            }
-
-            // Push sample to EEG stream (PacketFormat2 is little endian natively)
-            int physioChannels = (physioConnectionStatus_ == 3) ? 32 :
-                                 (physioConnectionStatus_ > 0) ? 16 : 0;
-
-            if (config_.nativeFormat) {
-                // Native format: push raw int32 ADC counts
-                std::vector<int32_t> rawSamples;
-                rawSamples.reserve(nChannels + physioChannels + 1);
-
-                for (int ch = 0; ch < nChannels; ch++) {
-                    rawSamples.push_back(packet.eegData[ch]);
-                }
-
-                // Add PIB1 channels (if port 1 connected: status 1 or 3)
-                if (physioConnectionStatus_ & 0x01) {
-                    for (int ch = 0; ch < 16; ch++) {
-                        rawSamples.push_back(packet.pib1_Data[ch]);
-                    }
-                }
-
-                // Add PIB2 channels (if port 2 connected: status 2 or 3)
-                if (physioConnectionStatus_ & 0x02) {
-                    for (int ch = 0; ch < 16; ch++) {
-                        rawSamples.push_back(packet.pib2_Data[ch]);
-                    }
-                }
-
-                // Add DIN channel (raw 16-bit value)
-                rawSamples.push_back(static_cast<int32_t>(packet.digitalInputs));
-
-                streamer_.pushSampleInt32(rawSamples);
-            } else {
-                // Default: convert to float microvolts
-                std::vector<float> eegSamples;
-                eegSamples.reserve(nChannels + physioChannels + 1);
-
-                for (int ch = 0; ch < nChannels; ch++) {
-                    eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
-                                         details_.scalingFactor);
-                }
-
-                // Add PIB1 channels (if port 1 connected: status 1 or 3)
-                // Channels 1-8 use negative scaling, 9-16 use positive scaling
-                if (physioConnectionStatus_ & 0x01) {
-                    for (int ch = 0; ch < 8; ch++) {
-                        eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
-                                             PHYSIO_SCALING_1_8);
-                    }
-                    for (int ch = 8; ch < 16; ch++) {
-                        eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
-                                             PHYSIO_SCALING_9_16);
-                    }
-                }
-
-                // Add PIB2 channels (if port 2 connected: status 2 or 3)
-                // Channels 1-8 use negative scaling, 9-16 use positive scaling
-                if (physioConnectionStatus_ & 0x02) {
-                    for (int ch = 0; ch < 8; ch++) {
-                        eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
-                                             PHYSIO_SCALING_1_8);
-                    }
-                    for (int ch = 8; ch < 16; ch++) {
-                        eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
-                                             PHYSIO_SCALING_9_16);
-                    }
-                }
-
-                // Add DIN channel (raw 16-bit value)
-                eegSamples.push_back(static_cast<float>(packet.digitalInputs));
-
-                streamer_.pushSample(eegSamples);
-            }
-
-            // Feed samples to impedance measurement if impedance mode is active
-            if (impedanceModeActive_ && impedanceMeasurement_) {
-                impedanceMeasurement_->feedSample(packet);
+            // Log non-matching notifications consumed during physio query
+            if (!notification.empty()) {
+                emitStatus("(during physio re-query) " + notification + "\n");
             }
         }
-    }
 
-    if (!stream.good() && !stopFlag_) {
-        emitError("The stream was lost.");
+        emitStatus("Physio16: query timed out during recovery, keeping previous status\n");
+    } catch (...) {
+        emitStatus("Physio16: query failed during recovery, keeping previous status\n");
     }
 }
 

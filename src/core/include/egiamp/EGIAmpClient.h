@@ -8,8 +8,10 @@
 #include "LSLStreamer.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -91,6 +93,9 @@ private:
     void readPacketFormat2();
     void processNotifications();
 
+    bool attemptRecovery(bool reinitialize);
+    void reQueryPhysioStatus();
+
     bool cmd_ImpedanceAcquisitionState();
     static bool commandCompleted(const std::string& response);
 
@@ -104,6 +109,11 @@ private:
     std::atomic<bool> stopFlag_{false};
     std::atomic<bool> sampleRateChangeDetected_{false};  // Set when ntn_AmpStarted received
     std::atomic<bool> impedanceModeActive_{false};  // Dynamic impedance mode state
+    std::atomic<bool> streamLost_{false};       // Data stream died, waiting for recovery
+    std::atomic<bool> ampRestarted_{false};     // Recovery complete, reader thread should resume
+    std::atomic<int> recoveryAttempts_{0};      // Number of recovery attempts since last success
+    std::mutex recoveryMutex_;
+    std::condition_variable recoveryCv_;
     bool weInitializedAmp_{false};  // Track if we initialized the amp (vs. it was already running)
     bool ampWasRunning_{false};     // Was the amp running when we queried state?
     int detectedSampleRate_{0};     // Sample rate detected from running amp

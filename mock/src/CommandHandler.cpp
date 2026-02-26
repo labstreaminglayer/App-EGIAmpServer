@@ -209,6 +209,9 @@ std::string CommandHandler::cmdNone(int64_t ampId, int16_t channel, const std::s
 
 std::string CommandHandler::cmdStart(int64_t ampId, int16_t channel, const std::string& value) {
     if (amplifier_->start()) {
+        if (notificationHandler_) {
+            notificationHandler_->sendAmpStarted();
+        }
         return successResponse();
     }
     return errorResponse();
@@ -216,12 +219,22 @@ std::string CommandHandler::cmdStart(int64_t ampId, int16_t channel, const std::
 
 std::string CommandHandler::cmdStop(int64_t ampId, int16_t channel, const std::string& value) {
     amplifier_->stop();
+    if (notificationHandler_) {
+        notificationHandler_->sendAmpStopped();
+    }
     return successResponse();
 }
 
 std::string CommandHandler::cmdSetPower(int64_t ampId, int16_t channel, const std::string& value) {
     bool on = (value == "1" || value.empty());
     amplifier_->setPower(on);
+    if (notificationHandler_) {
+        if (on) {
+            notificationHandler_->sendAmpPowerOn();
+        } else {
+            notificationHandler_->sendAmpPowerOff();
+        }
+    }
     return successResponse();
 }
 
