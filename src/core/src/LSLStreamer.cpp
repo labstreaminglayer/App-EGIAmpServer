@@ -326,25 +326,29 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
 
 void LSLStreamer::pushSample(const std::vector<float>& sample) {
     if (outlet_) {
-        if (timestampOffset_ != 0.0) {
-            // Apply filter delay compensation
-            double adjustedTime = lsl::local_clock() - timestampOffset_;
-            outlet_->push_sample(sample, adjustedTime);
-        } else {
-            outlet_->push_sample(sample);
-        }
+        double t = lsl::local_clock() - timestampOffset_;
+        outlet_->push_sample(sample, t);
     }
 }
 
 void LSLStreamer::pushSampleInt32(const std::vector<int32_t>& sample) {
     if (outlet_) {
-        if (timestampOffset_ != 0.0) {
-            // Apply filter delay compensation
-            double adjustedTime = lsl::local_clock() - timestampOffset_;
-            outlet_->push_sample(sample, adjustedTime);
-        } else {
-            outlet_->push_sample(sample);
-        }
+        double t = lsl::local_clock() - timestampOffset_;
+        outlet_->push_sample(sample, t);
+    }
+}
+
+void LSLStreamer::pushChunk(const std::vector<std::vector<float>>& chunk,
+                            double timestamp) {
+    if (outlet_ && !chunk.empty()) {
+        outlet_->push_chunk(chunk, timestamp - timestampOffset_);
+    }
+}
+
+void LSLStreamer::pushChunkInt32(const std::vector<std::vector<int32_t>>& chunk,
+                                 double timestamp) {
+    if (outlet_ && !chunk.empty()) {
+        outlet_->push_chunk(chunk, timestamp - timestampOffset_);
     }
 }
 

@@ -32,8 +32,15 @@ public:
                                const std::string& hostname,
                                const AmplifierDetails& details);
 
+    // Push a single sample (timestamp taken at call time).
     void pushSample(const std::vector<float>& sample);
     void pushSampleInt32(const std::vector<int32_t>& sample);
+
+    // Push a chunk of samples with an explicit timestamp (from lsl::local_clock())
+    // associated with the LAST sample.  LSL infers earlier samples' timestamps
+    // from the declared sample rate.
+    void pushChunk(const std::vector<std::vector<float>>& chunk, double timestamp);
+    void pushChunkInt32(const std::vector<std::vector<int32_t>>& chunk, double timestamp);
 
     bool isNativeFormat() const { return nativeFormat_; }
 

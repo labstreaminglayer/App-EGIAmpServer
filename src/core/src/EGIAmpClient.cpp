@@ -744,11 +744,19 @@ void EGIAmpClient::readPacketFormat2() {
             connection_.setDataStreamTimeout(std::chrono::seconds(5));
             stream.read(reinterpret_cast<char*>(&header), sizeof(header));
 
+            // Capture arrival time before any per-sample processing so that
+            // all samples in this batch share the same base timestamp.
+            double batchTimestamp = lsl::local_clock();
+
             header.ampID = big_to_native(header.ampID);
             header.length = big_to_native(header.length);
 
             int nSamples = header.length / sizeof(PacketFormat2);
             int uniquePackets = 0;
+
+            // Accumulate samples for chunk push
+            std::vector<std::vector<int32_t>> chunkInt32;
+            std::vector<std::vector<float>> chunkFloat;
 
             for (int s = 0; s < nSamples && stream.good(); s++) {
                 PacketFormat2 packet;
@@ -947,7 +955,7 @@ void EGIAmpClient::readPacketFormat2() {
                     // Add DIN channel (raw 16-bit value)
                     rawSamples.push_back(static_cast<int32_t>(packet.digitalInputs));
 
-                    streamer_.pushSampleInt32(rawSamples);
+                    chunkInt32.push_back(std::move(rawSamples));
                 } else {
                     // Default: convert to float microvolts
                     std::vector<float> eegSamples;
@@ -987,13 +995,21 @@ void EGIAmpClient::readPacketFormat2() {
                     // Add DIN channel (raw 16-bit value)
                     eegSamples.push_back(static_cast<float>(packet.digitalInputs));
 
-                    streamer_.pushSample(eegSamples);
+                    chunkFloat.push_back(std::move(eegSamples));
                 }
 
                 // Feed samples to impedance measurement if impedance mode is active
                 if (impedanceModeActive_ && impedanceMeasurement_) {
                     impedanceMeasurement_->feedSample(packet);
                 }
+            }
+
+            // Push accumulated chunk with batch arrival timestamp
+            if (!chunkInt32.empty()) {
+                streamer_.pushChunkInt32(chunkInt32, batchTimestamp);
+            }
+            if (!chunkFloat.empty()) {
+                streamer_.pushChunk(chunkFloat, batchTimestamp);
             }
         }
 
@@ -1217,11 +1233,13 @@ void EGIAmpClient::readPacketFormat1() {
     while (stream.good() && !stopFlag_) {
         AmpDataPacketHeader header;
         stream.read(reinterpret_cast<char*>(&header), sizeof(header));
+        double batchTimestamp = lsl::local_clock();
 
         header.ampID = big_to_native(header.ampID);
         header.length = big_to_native(header.length);
 
         int nSamples = header.length / sizeof(PacketFormat1);
+        std::vector<std::vector<float>> chunk;
 
         for (int s = 0; s < nSamples && stream.good(); s++) {
             PacketFormat1 packet;
@@ -1256,7 +1274,7 @@ void EGIAmpClient::readPacketFormat1() {
                                        false);  // Format1 is always float
             }
 
-            // Convert endianness and push sample
+            // Convert endianness and accumulate sample
             std::vector<float> sample;
             sample.reserve(nChannels);
             for (int i = 0; i < nChannels; i++) {
@@ -1264,7 +1282,11 @@ void EGIAmpClient::readPacketFormat1() {
                 big_to_native_inplace(val);
                 sample.push_back(val);
             }
-            streamer_.pushSample(sample);
+            chunk.push_back(std::move(sample));
+        }
+
+        if (!chunk.empty()) {
+            streamer_.pushChunk(chunk, batchTimestamp);
         }
     }
 
