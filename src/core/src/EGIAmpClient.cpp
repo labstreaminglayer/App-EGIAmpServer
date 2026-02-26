@@ -580,7 +580,7 @@ bool EGIAmpClient::startImpedanceMode() {
     if (nChannels <= 0) {
         nChannels = details_.channelCount;
     }
-    std::string streamName = "EGI NetAmp " + std::to_string(config_.amplifierId) + " Impedance";
+    std::string streamName = config_.streamName() + "_Impedance";
     impedanceStreamer_.createImpedanceOutlet(streamName, nChannels, config_.serverAddress, details_);
     emitStatus("Impedance stream created.\n");
 
@@ -776,7 +776,7 @@ void EGIAmpClient::readPacketFormat2() {
                     emitChannelCount(nChannels + physioChannelCount + dinChannelCount);
 
                     // Create LSL outlet for EEG (+ Physio if connected + DIN)
-                    std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                    std::string streamName = config_.streamName();
                     streamer_.createOutlet(streamName, nChannels, physioChannelCount, dinChannelCount,
                                            config_.sampleRate, config_.serverAddress, details_,
                                            config_.nativeFormat);
@@ -797,7 +797,7 @@ void EGIAmpClient::readPacketFormat2() {
 
                     // Create LSL outlet for impedance if enabled and start scanning
                     if (config_.impedance && impedanceMeasurement_) {
-                        std::string impedanceStreamName = streamName + " Impedance";
+                        std::string impedanceStreamName = streamName + "_Impedance";
                         impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
                                                                  config_.serverAddress, details_);
                         emitStatus("Impedance stream created.\n");
@@ -869,7 +869,7 @@ void EGIAmpClient::readPacketFormat2() {
 
                                 // Recreate LSL outlets with new rate
                                 streamer_.closeOutlet();
-                                std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                                std::string streamName = config_.streamName();
                                 int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
                                                     (physioConnectionStatus_ > 0) ? 16 : 0;
                                 constexpr int dinChCount = 1;  // Single channel with raw 16-bit value
@@ -887,7 +887,7 @@ void EGIAmpClient::readPacketFormat2() {
                                 if (impedanceModeActive_ && impedanceMeasurement_) {
                                     impedanceMeasurement_->stop();
                                     impedanceStreamer_.closeOutlet();
-                                    std::string impedanceStreamName = streamName + " Impedance";
+                                    std::string impedanceStreamName = streamName + "_Impedance";
                                     impedanceStreamer_.createImpedanceOutlet(impedanceStreamName, nChannels,
                                                                              config_.serverAddress, details_);
                                     impedanceMeasurement_->setSampleRate(config_.sampleRate);
@@ -1247,7 +1247,7 @@ void EGIAmpClient::readPacketFormat1() {
                 // Create LSL outlet (no Physio16 or DIN support for PacketFormat1)
                 // Note: PacketFormat1 (NA300) already provides float data, so nativeFormat
                 // doesn't apply - we always use float for Format1
-                std::string streamName = "EGI NetAmp " + std::to_string(header.ampID);
+                std::string streamName = config_.streamName();
                 streamer_.createOutlet(streamName, nChannels, 0, 0,
                                        config_.sampleRate, config_.serverAddress, details_,
                                        false);  // Format1 is always float

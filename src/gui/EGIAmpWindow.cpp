@@ -9,6 +9,15 @@
 #include <QSpinBox>
 #include <QVariantList>
 
+namespace {
+/// Derive amplifier ID from the server address: .52 → 1, everything else → 0.
+int amplifierIdFromAddress(const std::string& address) {
+    if (address.size() >= 3 && address.compare(address.size() - 3, 3, ".52") == 0)
+        return 1;
+    return 0;
+}
+} // namespace
+
 EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     : QMainWindow(parent)
     , ui(new Ui::EGIAmpWindow)
@@ -57,7 +66,6 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
 
     // Field enable/disable connections
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->sampleRateComboBox, &QComboBox::setEnabled);
-    connect(this, &EGIAmpWindow::fieldsEnabled, ui->amplifierId, &QSpinBox::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->serverAddress, &QLineEdit::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->commandPort, &QSpinBox::setEnabled);
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->notificationPort, &QSpinBox::setEnabled);
@@ -115,7 +123,6 @@ void EGIAmpWindow::loadConfig(const std::string& filename) {
         ui->commandPort->setValue(config.commandPort);
         ui->notificationPort->setValue(config.notificationPort);
         ui->dataPort->setValue(config.dataPort);
-        ui->amplifierId->setValue(config.amplifierId);
         ui->sampleRateComboBox->setCurrentIndex(
             findSampleRateIndex(config.sampleRate, config.fastRecovery));
         ui->alignTimestampsCheckBox->setChecked(config.alignTimestamps);
@@ -141,7 +148,7 @@ egiamp::AmpServerConfig EGIAmpWindow::getConfigFromUI() const {
     config.commandPort = static_cast<uint16_t>(ui->commandPort->value());
     config.notificationPort = static_cast<uint16_t>(ui->notificationPort->value());
     config.dataPort = static_cast<uint16_t>(ui->dataPort->value());
-    config.amplifierId = ui->amplifierId->value();
+    config.amplifierId = amplifierIdFromAddress(config.serverAddress);
 
     QVariantList rateData = ui->sampleRateComboBox->currentData().toList();
     config.sampleRate = rateData[0].toInt();

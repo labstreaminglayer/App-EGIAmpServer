@@ -4,6 +4,14 @@
 
 namespace egiamp {
 
+std::string AmpServerConfig::streamName() const {
+    if (serverAddress == "localhost" || serverAddress.compare(0, 4, "127.") == 0)
+        return "EGINetAmp_mock";
+    if (serverAddress.size() >= 3 && serverAddress.compare(serverAddress.size() - 3, 3, ".52") == 0)
+        return "EGINetAmp_52";
+    return "EGINetAmp_51";
+}
+
 AmpServerConfig AmpServerConfig::loadFromFile(const std::string& filename) {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(filename.c_str());
