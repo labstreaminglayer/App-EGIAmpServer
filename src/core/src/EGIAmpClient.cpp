@@ -464,17 +464,24 @@ bool EGIAmpClient::startStreaming() {
     // Query Physio16 connection status
     connection_.sendCommand("cmd_GetPhysioConnectionStatus", config_.amplifierId, 0, "0");
 
-    // Read notifications until we find physio status or timeout
-    // (there may be other notifications like client_connected in the queue)
+    // Read notifications until we find physio status or timeout.
+    // During cold start, several notifications may precede the physio response
+    // (client_connected, ntn_AmpPowerOff, ntn_AmpPowerOn, ntn_AmpStarted, etc.)
+    // and some arrive with delay as the amplifier initializes hardware.
     physioConnectionStatus_ = 0;
     try {
         auto& notifStream = connection_.notificationStream();
         std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
-        for (int attempt = 0; attempt < 5; attempt++) {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            notifStream.clear();  // Reset stream state after any prior timeout
             connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
             char notifBuffer[4096];
             notifStream.getline(notifBuffer, sizeof(notifBuffer));
+
+            if (!notifStream.good()) {
+                continue;  // Timeout or read error, retry
+            }
 
             std::string notification(notifBuffer);
             std::smatch match;
@@ -653,10 +660,15 @@ void EGIAmpClient::run() {
 void EGIAmpClient::processNotifications() {
     auto& stream = connection_.notificationStream();
 
-    while (stream.good() && !stopFlag_) {
+    while (!stopFlag_) {
+        stream.clear();  // Reset stream state after any prior timeout
         connection_.setNotificationStreamTimeout(std::chrono::seconds(1));
         char response[4096];
         stream.getline(response, sizeof(response));
+
+        if (!stream.good()) {
+            continue;  // Timeout, retry
+        }
 
         std::string notification(response);
         if (notification.length() > 0) {
