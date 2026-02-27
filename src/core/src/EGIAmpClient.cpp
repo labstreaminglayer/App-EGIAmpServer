@@ -40,13 +40,23 @@ void EGIAmpClient::setConfig(const AmpServerConfig& config) {
 }
 
 bool EGIAmpClient::connect() {
-    return connection_.connect(config_.serverAddress,
-                               config_.commandPort,
-                               config_.notificationPort,
-                               config_.dataPort);
+    if (!connection_.connect(config_.serverAddress,
+                              config_.commandPort,
+                              config_.notificationPort,
+                              config_.dataPort)) {
+        return false;
+    }
+
+    // Create notification stream — lives as long as the connection
+    std::string streamName = config_.streamName();
+    notificationStreamer_.createNotificationOutlet(
+        streamName + "_Notifications", config_.serverAddress);
+
+    return true;
 }
 
 void EGIAmpClient::disconnect() {
+    notificationStreamer_.closeOutlet();
     connection_.disconnect();
 }
 
@@ -365,7 +375,6 @@ void EGIAmpClient::haltAmplifier() {
     streamer_.closeOutlet();
     dinStreamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
-    notificationStreamer_.closeOutlet();
     lastDINValue_ = 0;
     stopFlag_ = false;
     streamLost_ = false;
@@ -802,10 +811,6 @@ void EGIAmpClient::readPacketFormat2() {
 
                     // Create separate DIN event stream (irregular rate, no filter delay)
                     dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
-
-                    // Create notification stream (irregular rate, string markers)
-                    notificationStreamer_.createNotificationOutlet(
-                        streamName + "_Notifications", config_.serverAddress);
 
                     // Apply timestamp offset for filter delay compensation if enabled
                     if (config_.alignTimestamps) {
