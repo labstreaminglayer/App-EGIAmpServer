@@ -163,6 +163,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     lsl::xml_element ref = desc.append_child("reference");
     ref.append_child_value("label", "Cz");
     ref.append_child_value("subtracted", "Yes");
+    ref.append_child_value("included_in_stream", "Yes");
 
     // =========================================================================
     // Channel metadata

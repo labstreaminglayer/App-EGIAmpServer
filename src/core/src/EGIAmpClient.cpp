@@ -801,11 +801,13 @@ void EGIAmpClient::readPacketFormat2() {
                         physioChannelCount = 32;
                     }
 
-                    emitChannelCount(nChannels + physioChannelCount);
+                    // +1 for Cz reference channel (always zero, appended to EEG data)
+                    int eegChannelCount = nChannels + 1;
+                    emitChannelCount(eegChannelCount + physioChannelCount);
 
                     // Create LSL outlet for EEG (+ Physio if connected)
                     std::string streamName = config_.streamName();
-                    streamer_.createOutlet(streamName, nChannels, physioChannelCount, 0,
+                    streamer_.createOutlet(streamName, eegChannelCount, physioChannelCount, 0,
                                            config_.sampleRate, config_.serverAddress, details_,
                                            config_.nativeFormat);
 
@@ -904,7 +906,7 @@ void EGIAmpClient::readPacketFormat2() {
                                 std::string streamName = config_.streamName();
                                 int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
                                                     (physioConnectionStatus_ > 0) ? 16 : 0;
-                                streamer_.createOutlet(streamName, nChannels, physioChCount, 0,
+                                streamer_.createOutlet(streamName, nChannels + 1, physioChCount, 0,
                                                        config_.sampleRate, config_.serverAddress, details_,
                                                        config_.nativeFormat);
                                 dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
@@ -954,11 +956,12 @@ void EGIAmpClient::readPacketFormat2() {
                 if (config_.nativeFormat) {
                     // Native format: push raw int32 ADC counts
                     std::vector<int32_t> rawSamples;
-                    rawSamples.reserve(nChannels + physioChannels);
+                    rawSamples.reserve(nChannels + 1 + physioChannels);
 
                     for (int ch = 0; ch < nChannels; ch++) {
                         rawSamples.push_back(packet.eegData[ch]);
                     }
+                    rawSamples.push_back(0);  // Cz reference channel
 
                     // Add PIB1 channels (if port 1 connected: status 1 or 3)
                     if (physioConnectionStatus_ & 0x01) {
@@ -978,12 +981,13 @@ void EGIAmpClient::readPacketFormat2() {
                 } else {
                     // Default: convert to float microvolts
                     std::vector<float> eegSamples;
-                    eegSamples.reserve(nChannels + physioChannels);
+                    eegSamples.reserve(nChannels + 1 + physioChannels);
 
                     for (int ch = 0; ch < nChannels; ch++) {
                         eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
                                              details_.scalingFactor);
                     }
+                    eegSamples.push_back(0.0f);  // Cz reference channel
 
                     // Add PIB1 channels (if port 1 connected: status 1 or 3)
                     // Channels 1-8 use negative scaling, 9-16 use positive scaling
@@ -1298,25 +1302,27 @@ void EGIAmpClient::readPacketFormat1() {
 
                 emitStatus(std::string("Sensor: ") + netCodeName(details_.netCode) + "\n");
                 emitSensor(details_.netCode);
-                emitChannelCount(nChannels);
+                // +1 for Cz reference channel
+                emitChannelCount(nChannels + 1);
 
                 // Create LSL outlet (no Physio16 or DIN support for PacketFormat1)
                 // Note: PacketFormat1 (NA300) already provides float data, so nativeFormat
                 // doesn't apply - we always use float for Format1
                 std::string streamName = config_.streamName();
-                streamer_.createOutlet(streamName, nChannels, 0, 0,
+                streamer_.createOutlet(streamName, nChannels + 1, 0, 0,
                                        config_.sampleRate, config_.serverAddress, details_,
                                        false);  // Format1 is always float
             }
 
             // Convert endianness and accumulate sample
             std::vector<float> sample;
-            sample.reserve(nChannels);
+            sample.reserve(nChannels + 1);
             for (int i = 0; i < nChannels; i++) {
                 float val = packet.eeg[i];
                 big_to_native_inplace(val);
                 sample.push_back(val);
             }
+            sample.push_back(0.0f);  // Cz reference channel
             chunk.push_back(std::move(sample));
         }
 
