@@ -174,6 +174,8 @@ void EGIAmpWindow::linkAmpserver() {
         // Unlink
         client_->stopStreaming();
         client_->disconnect();
+        ui->statusBar->clearMessage();
+        ui->statusBar->setStyleSheet("");
         emit fieldsEnabled(true);
         emit setLinkButtonText("Link");
         emit sensorLayoutUpdated("");
@@ -209,6 +211,16 @@ void EGIAmpWindow::linkAmpserver() {
             // Update sensor layout from detected net code
             egiamp::NetCode netCode = client_->detectedNetCode();
             emit sensorLayoutUpdated(QString::fromUtf8(egiamp::netCodeName(netCode)));
+
+            // Show persistent warning in status bar for ambiguous rates where we
+            // cannot detect whether the FPGA anti-alias filter is active
+            if (detectedRate == 500 || detectedRate == 1000) {
+                ui->statusBar->setStyleSheet("QStatusBar { color: #b35900; }");
+                ui->statusBar->showMessage(
+                    QString("Warning: Amp started externally at %1 Hz — "
+                            "filter mode unknown, timestamp alignment may be inaccurate")
+                        .arg(detectedRate));
+            }
         }
 
         if (!client_->startStreaming()) {
@@ -228,6 +240,8 @@ void EGIAmpWindow::displayError(QString description) {
 
 void EGIAmpWindow::unlockUI() {
     ui->linkButton->setEnabled(true);
+    ui->statusBar->clearMessage();
+    ui->statusBar->setStyleSheet("");
     emit setLinkButtonText("Link");
     emit fieldsEnabled(true);
     ui->actionShutdown_Amp_Server->setEnabled(true);
