@@ -352,6 +352,29 @@ void LSLStreamer::pushChunkInt32(const std::vector<std::vector<int32_t>>& chunk,
     }
 }
 
+void LSLStreamer::createDINOutlet(const std::string& streamName,
+                                  const std::string& hostname) {
+    closeOutlet();
+
+    std::string sourceId = "EGI_" + hostname + "_DIN";
+    lsl::stream_info info(streamName, "Markers", 1,
+                          lsl::IRREGULAR_RATE, lsl::cf_int32, sourceId);
+
+    lsl::xml_element channels = info.desc().append_child("channels");
+    lsl::xml_element ch = channels.append_child("channel");
+    ch.append_child_value("label", "DIN");
+    ch.append_child_value("type", "Trigger");
+    ch.append_child_value("unit", "raw");
+
+    outlet_ = std::make_unique<lsl::stream_outlet>(info, 0);
+}
+
+void LSLStreamer::pushDINEvent(int32_t value, double timestamp) {
+    if (outlet_) {
+        outlet_->push_sample(&value, timestamp);
+    }
+}
+
 void LSLStreamer::closeOutlet() {
     outlet_.reset();
 }

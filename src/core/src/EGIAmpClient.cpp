@@ -363,7 +363,9 @@ void EGIAmpClient::haltAmplifier() {
 
     // Close the LSL outlets so next session starts fresh
     streamer_.closeOutlet();
+    dinStreamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
+    lastDINValue_ = 0;
     stopFlag_ = false;
     streamLost_ = false;
     ampRestarted_ = false;
@@ -758,6 +760,10 @@ void EGIAmpClient::readPacketFormat2() {
             std::vector<std::vector<int32_t>> chunkInt32;
             std::vector<std::vector<float>> chunkFloat;
 
+            // DIN change events (value + sample index within batch)
+            struct DINEvent { int32_t value; int sampleIndex; };
+            std::vector<DINEvent> dinEvents;
+
             for (int s = 0; s < nSamples && stream.good(); s++) {
                 PacketFormat2 packet;
                 stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
@@ -782,14 +788,16 @@ void EGIAmpClient::readPacketFormat2() {
                         physioChannelCount = 32;
                     }
 
-                    constexpr int dinChannelCount = 1;  // Single channel with raw 16-bit value
-                    emitChannelCount(nChannels + physioChannelCount + dinChannelCount);
+                    emitChannelCount(nChannels + physioChannelCount);
 
-                    // Create LSL outlet for EEG (+ Physio if connected + DIN)
+                    // Create LSL outlet for EEG (+ Physio if connected)
                     std::string streamName = config_.streamName();
-                    streamer_.createOutlet(streamName, nChannels, physioChannelCount, dinChannelCount,
+                    streamer_.createOutlet(streamName, nChannels, physioChannelCount, 0,
                                            config_.sampleRate, config_.serverAddress, details_,
                                            config_.nativeFormat);
+
+                    // Create separate DIN event stream (irregular rate, no filter delay)
+                    dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
 
                     // Apply timestamp offset for filter delay compensation if enabled
                     if (config_.alignTimestamps) {
@@ -879,13 +887,14 @@ void EGIAmpClient::readPacketFormat2() {
 
                                 // Recreate LSL outlets with new rate
                                 streamer_.closeOutlet();
+                                dinStreamer_.closeOutlet();
                                 std::string streamName = config_.streamName();
                                 int physioChCount = (physioConnectionStatus_ == 3) ? 32 :
                                                     (physioConnectionStatus_ > 0) ? 16 : 0;
-                                constexpr int dinChCount = 1;  // Single channel with raw 16-bit value
-                                streamer_.createOutlet(streamName, nChannels, physioChCount, dinChCount,
+                                streamer_.createOutlet(streamName, nChannels, physioChCount, 0,
                                                        config_.sampleRate, config_.serverAddress, details_,
                                                        config_.nativeFormat);
+                                dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
 
                                 // Apply timestamp offset for filter delay compensation if enabled
                                 if (config_.alignTimestamps) {
@@ -925,14 +934,14 @@ void EGIAmpClient::readPacketFormat2() {
                     lastPacketCounterWithTimeStamp_ = packet.packetCounter;
                 }
 
-                // Push sample to EEG stream (PacketFormat2 is little endian natively)
+                // Build EEG sample (PacketFormat2 is little endian natively)
                 int physioChannels = (physioConnectionStatus_ == 3) ? 32 :
                                      (physioConnectionStatus_ > 0) ? 16 : 0;
 
                 if (config_.nativeFormat) {
                     // Native format: push raw int32 ADC counts
                     std::vector<int32_t> rawSamples;
-                    rawSamples.reserve(nChannels + physioChannels + 1);
+                    rawSamples.reserve(nChannels + physioChannels);
 
                     for (int ch = 0; ch < nChannels; ch++) {
                         rawSamples.push_back(packet.eegData[ch]);
@@ -952,14 +961,11 @@ void EGIAmpClient::readPacketFormat2() {
                         }
                     }
 
-                    // Add DIN channel (raw 16-bit value)
-                    rawSamples.push_back(static_cast<int32_t>(packet.digitalInputs));
-
                     chunkInt32.push_back(std::move(rawSamples));
                 } else {
                     // Default: convert to float microvolts
                     std::vector<float> eegSamples;
-                    eegSamples.reserve(nChannels + physioChannels + 1);
+                    eegSamples.reserve(nChannels + physioChannels);
 
                     for (int ch = 0; ch < nChannels; ch++) {
                         eegSamples.push_back(static_cast<float>(packet.eegData[ch]) *
@@ -992,10 +998,14 @@ void EGIAmpClient::readPacketFormat2() {
                         }
                     }
 
-                    // Add DIN channel (raw 16-bit value)
-                    eegSamples.push_back(static_cast<float>(packet.digitalInputs));
-
                     chunkFloat.push_back(std::move(eegSamples));
+                }
+
+                // Track DIN changes (pushed after the loop with per-sample timestamps)
+                if (packet.digitalInputs != lastDINValue_) {
+                    dinEvents.push_back({static_cast<int32_t>(packet.digitalInputs),
+                                         uniquePackets - 1});  // 0-based index among unique samples
+                    lastDINValue_ = packet.digitalInputs;
                 }
 
                 // Feed samples to impedance measurement if impedance mode is active
@@ -1004,12 +1014,23 @@ void EGIAmpClient::readPacketFormat2() {
                 }
             }
 
-            // Push accumulated chunk with batch arrival timestamp
+            // Push accumulated EEG chunk with batch arrival timestamp
             if (!chunkInt32.empty()) {
                 streamer_.pushChunkInt32(chunkInt32, batchTimestamp);
             }
             if (!chunkFloat.empty()) {
                 streamer_.pushChunk(chunkFloat, batchTimestamp);
+            }
+
+            // Push DIN change events with per-sample timestamps.
+            // batchTimestamp corresponds to the last sample; earlier samples
+            // are offset backwards by their distance from the end.
+            if (!dinEvents.empty() && uniquePackets > 0) {
+                double sampleInterval = 1.0 / config_.sampleRate;
+                for (const auto& ev : dinEvents) {
+                    double t = batchTimestamp - (uniquePackets - 1 - ev.sampleIndex) * sampleInterval;
+                    dinStreamer_.pushDINEvent(ev.value, t);
+                }
             }
         }
 
@@ -1160,6 +1181,7 @@ bool EGIAmpClient::attemptRecovery(bool reinitialize) {
 
         if (needsNewOutlet) {
             streamer_.closeOutlet();
+            dinStreamer_.closeOutlet();
         } else if (streamer_.hasOutlet()) {
             emitStatus("Reusing existing LSL outlet (settings unchanged).\n");
         }

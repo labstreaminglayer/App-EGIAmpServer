@@ -102,6 +102,7 @@ private:
     AmpServerConfig config_;
     AmpServerConnection connection_;
     LSLStreamer streamer_;
+    LSLStreamer dinStreamer_;
     LSLStreamer impedanceStreamer_;
     AmplifierDetails details_;
     std::unique_ptr<ImpedanceMeasurement> impedanceMeasurement_;
@@ -125,6 +126,7 @@ private:
     uint64_t lastPacketCounter_ = 0;
     uint64_t lastTimeStamp_ = 0;
     uint64_t lastPacketCounterWithTimeStamp_ = 0;
+    uint16_t lastDINValue_ = 0;
 
     StatusCallback statusCallback_;
     ErrorCallback errorCallback_;

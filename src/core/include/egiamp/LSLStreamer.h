@@ -32,6 +32,13 @@ public:
                                const std::string& hostname,
                                const AmplifierDetails& details);
 
+    void createDINOutlet(const std::string& streamName,
+                         const std::string& hostname);
+
+    // Push a single DIN event with an explicit timestamp.
+    // No timestampOffset_ is applied (DIN is not subject to the FPGA filter).
+    void pushDINEvent(int32_t value, double timestamp);
+
     // Push a single sample (timestamp taken at call time).
     void pushSample(const std::vector<float>& sample);
     void pushSampleInt32(const std::vector<int32_t>& sample);
