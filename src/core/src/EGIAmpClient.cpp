@@ -365,6 +365,7 @@ void EGIAmpClient::haltAmplifier() {
     streamer_.closeOutlet();
     dinStreamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
+    notificationStreamer_.closeOutlet();
     lastDINValue_ = 0;
     stopFlag_ = false;
     streamLost_ = false;
@@ -691,6 +692,9 @@ void EGIAmpClient::processNotifications() {
 
         std::string notification(response);
         if (notification.length() > 0) {
+            // Push to LSL notification stream
+            notificationStreamer_.pushNotification(notification, lsl::local_clock());
+
             emitStatus("__________________________\n  Notification Received\n    " +
                        notification + "\n__________________________\n");
 
@@ -798,6 +802,10 @@ void EGIAmpClient::readPacketFormat2() {
 
                     // Create separate DIN event stream (irregular rate, no filter delay)
                     dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
+
+                    // Create notification stream (irregular rate, string markers)
+                    notificationStreamer_.createNotificationOutlet(
+                        streamName + "_Notifications", config_.serverAddress);
 
                     // Apply timestamp offset for filter delay compensation if enabled
                     if (config_.alignTimestamps) {

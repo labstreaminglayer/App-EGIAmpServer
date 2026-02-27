@@ -375,6 +375,28 @@ void LSLStreamer::pushDINEvent(int32_t value, double timestamp) {
     }
 }
 
+void LSLStreamer::createNotificationOutlet(const std::string& streamName,
+                                            const std::string& hostname) {
+    closeOutlet();
+
+    std::string sourceId = "EGI_" + hostname + "_notifications";
+    lsl::stream_info info(streamName, "Markers", 1,
+                          lsl::IRREGULAR_RATE, lsl::cf_string, sourceId);
+
+    lsl::xml_element channels = info.desc().append_child("channels");
+    lsl::xml_element ch = channels.append_child("channel");
+    ch.append_child_value("label", "Notification");
+    ch.append_child_value("type", "Marker");
+
+    outlet_ = std::make_unique<lsl::stream_outlet>(info, 0);
+}
+
+void LSLStreamer::pushNotification(const std::string& text, double timestamp) {
+    if (outlet_) {
+        outlet_->push_sample(&text, timestamp);
+    }
+}
+
 void LSLStreamer::closeOutlet() {
     outlet_.reset();
 }

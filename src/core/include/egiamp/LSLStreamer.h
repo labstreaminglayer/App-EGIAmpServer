@@ -35,9 +35,15 @@ public:
     void createDINOutlet(const std::string& streamName,
                          const std::string& hostname);
 
+    void createNotificationOutlet(const std::string& streamName,
+                                  const std::string& hostname);
+
     // Push a single DIN event with an explicit timestamp.
     // No timestampOffset_ is applied (DIN is not subject to the FPGA filter).
     void pushDINEvent(int32_t value, double timestamp);
+
+    // Push a notification string with an explicit timestamp.
+    void pushNotification(const std::string& text, double timestamp);
 
     // Push a single sample (timestamp taken at call time).
     void pushSample(const std::vector<float>& sample);

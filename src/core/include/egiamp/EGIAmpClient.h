@@ -104,6 +104,7 @@ private:
     LSLStreamer streamer_;
     LSLStreamer dinStreamer_;
     LSLStreamer impedanceStreamer_;
+    LSLStreamer notificationStreamer_;
     AmplifierDetails details_;
     std::unique_ptr<ImpedanceMeasurement> impedanceMeasurement_;
 
