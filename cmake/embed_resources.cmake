@@ -8,6 +8,9 @@
 # Each input file becomes a const std::string_view in namespace egiamp::resources.
 # Symbol names are derived from filenames: lowercase, spaces/hyphens/dots become underscores,
 # leading "HydroCel_GSN_" and "GSN_HydroCel_" prefixes are stripped, trailing version suffixes removed.
+#
+# Data is stored as char arrays (not raw string literals) to avoid MSVC's
+# 16380-character string literal limit (C2026).
 
 # Read manifest
 file(STRINGS "${MANIFEST}" RESOURCE_FILES)
@@ -17,8 +20,8 @@ set(DECLARATIONS "")
 set(DEFINITIONS "")
 
 foreach(RESOURCE_FILE ${RESOURCE_FILES})
-    # Read file content
-    file(READ "${RESOURCE_FILE}" FILE_CONTENT)
+    # Read file content as hex
+    file(READ "${RESOURCE_FILE}" FILE_HEX HEX)
 
     # Derive symbol name from filename
     get_filename_component(BASENAME "${RESOURCE_FILE}" NAME_WE)
@@ -46,9 +49,16 @@ foreach(RESOURCE_FILE ${RESOURCE_FILES})
     # Build declaration
     string(APPEND DECLARATIONS "extern const std::string_view ${SYMBOL};\n")
 
-    # Build definition with raw string literal
-    # Use a delimiter unlikely to appear in the data
-    string(APPEND DEFINITIONS "const std::string_view ${SYMBOL} = R\"__RES__(${FILE_CONTENT})__RES__\";\n\n")
+    # Convert hex pairs to "0xAB," format
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," BYTE_ARRAY "${FILE_HEX}")
+
+    # Calculate byte count
+    string(LENGTH "${FILE_HEX}" HEX_LEN)
+    math(EXPR BYTE_COUNT "${HEX_LEN} / 2")
+
+    # Build definition with char array + string_view wrapper
+    string(APPEND DEFINITIONS "static const char ${SYMBOL}_data[${BYTE_COUNT}] = {\n    ${BYTE_ARRAY}\n};\n")
+    string(APPEND DEFINITIONS "const std::string_view ${SYMBOL}(${SYMBOL}_data, ${BYTE_COUNT});\n\n")
 endforeach()
 
 # Generate header
