@@ -1,4 +1,22 @@
-ui_*.h
+# Build directories
 /build*/
+/cmake-build-*/
+
+# CMake
 /CMakeLists.txt.user
 /CMakeLists.json
+
+# Qt generated files
+ui_*.h
+moc_*.cpp
+qrc_*.cpp
+
+# IDE
+/.idea/
+/.vscode/
+*.swp
+*~
+settings.local.json
+
+# macOS
+.DS_Store

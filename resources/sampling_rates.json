@@ -1,0 +1,106 @@
+{
+  "_comment": "Sampling rates, source rates, and anti-alias filter alignment shifts for EGI amplifiers",
+  "_source": "Extracted from EGI Anti-Alias Filter Alignment.app/Contents/Resources/Sampling Rates.plist",
+  "amplifiers": {
+    "NA300": {
+      "available_rates": [125, 250, 500, 1000],
+      "source_rate": 1000,
+      "eeg_shift_samples": {
+        "125": 72,
+        "250": 36,
+        "500": 18,
+        "1000": 8
+      },
+      "pns_shift_samples": {
+        "125": 0,
+        "250": 0,
+        "500": 0,
+        "1000": 0
+      },
+      "pns_diff_samples": {
+        "125": 0,
+        "250": 0,
+        "500": 0,
+        "1000": 0
+      }
+    },
+    "NA400": {
+      "available_rates": [250, 500, 1000],
+      "fast_recovery_rates": [1000],
+      "source_rate": 1000,
+      "eeg_shift_samples": {
+        "250": 112,
+        "500": 66,
+        "1000": 36,
+        "1000_fast_recovery": 0,
+        "2000": 0,
+        "4000": 0,
+        "8000": 0
+      },
+      "pns_shift_samples": {
+        "250": 80,
+        "500": 28,
+        "1000": 3,
+        "1000_fast_recovery": 3,
+        "2000": 0,
+        "4000": 0,
+        "8000": 0
+      },
+      "pns_diff_samples": {
+        "250": 74,
+        "500": 30,
+        "1000": 0,
+        "1000_fast_recovery": 0,
+        "2000": 0,
+        "4000": 0,
+        "8000": 0
+      }
+    },
+    "NA410": {
+      "available_rates": [250, 500, 1000],
+      "fast_recovery_rates": [1000],
+      "source_rate": 1000,
+      "eeg_shift_samples": {
+        "250": 76,
+        "500": 34,
+        "1000": 13,
+        "1000_fast_recovery": 0,
+        "2000": 0,
+        "5000": 0,
+        "10000": 0,
+        "20000": 0
+      },
+      "pns_shift_samples": {
+        "250": 64,
+        "500": 24,
+        "1000": 3,
+        "1000_fast_recovery": 3,
+        "2000": 0,
+        "5000": 0,
+        "10000": 0,
+        "20000": 0
+      },
+      "pns_diff_samples": {
+        "250": 24,
+        "500": 24,
+        "1000": 25,
+        "1000_fast_recovery": 0,
+        "2000": 0,
+        "5000": 0,
+        "10000": 0,
+        "20000": 0
+      }
+    }
+  },
+  "notes": {
+    "eeg_shift": "Number of samples to shift EEG data for anti-alias filter alignment",
+    "pns_shift": "Number of samples to shift PNS/physio data for filter alignment",
+    "pns_diff": "Differential samples between EEG and PNS channels"
+  },
+  "timeouts": {
+    "ping_timeout_seconds": 120,
+    "request_timeout_seconds": 5,
+    "min_restart_delay_seconds": 30,
+    "min_shutdown_delay_seconds": 15
+  }
+}

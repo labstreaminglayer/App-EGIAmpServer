@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>316</width>
+    <width>360</width>
     <height>532</height>
    </rect>
   </property>
@@ -96,49 +96,56 @@
       </property>
       <layout class="QFormLayout" name="formLayout_2">
        <item row="0" column="0">
-        <widget class="QLabel" name="label_3">
-         <property name="text">
-          <string>Amplifier Id</string>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="1">
-        <widget class="QSpinBox" name="amplifierId">
-         <property name="minimum">
-          <number>0</number>
-         </property>
-         <property name="maximum">
-          <number>32</number>
-         </property>
-         <property name="value">
-          <number>0</number>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="0">
         <widget class="QLabel" name="label_8">
          <property name="text">
           <string>Sampling Rate</string>
          </property>
         </widget>
        </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="sampleRateComboBox"/>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="label_11">
+         <property name="text">
+          <string>Align Timestamps</string>
+         </property>
+        </widget>
+       </item>
        <item row="1" column="1">
-        <widget class="QComboBox" name="sampleRateComboBox">
-         <item>
-          <property name="text">
-           <string>1000</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>500</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>250</string>
-          </property>
-         </item>
+        <widget class="QCheckBox" name="alignTimestampsCheckBox">
+         <property name="text">
+          <string>Compensate for filter delay</string>
+         </property>
+         <property name="toolTip">
+          <string>Adjust timestamps to compensate for the FPGA anti-alias filter delay. Only applicable when using decimated (filtered) sample rates.</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="label_9">
+         <property name="text">
+          <string>Sensor Layout</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QLineEdit" name="sensorLayout">
+         <property name="minimumSize">
+          <size>
+           <width>180</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="placeholderText">
+          <string>(detected on link)</string>
+         </property>
         </widget>
        </item>
       </layout>
@@ -153,6 +160,19 @@
     </item>
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout">
+      <item>
+       <widget class="QCheckBox" name="impedanceCheckBox">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="text">
+         <string>Measure Impedances</string>
+        </property>
+        <property name="toolTip">
+         <string>Enable impedance measurement (creates a separate LSL stream with electrode impedances)</string>
+        </property>
+       </widget>
+      </item>
       <item>
        <spacer name="horizontalSpacer">
         <property name="orientation">
@@ -195,7 +215,14 @@
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
+   <widget class="QMenu" name="menuAmplifier">
+    <property name="title">
+     <string>Amplifier</string>
+    </property>
+    <addaction name="actionShutdown_Amp_Server"/>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuAmplifier"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
   <action name="actionLoad_Configuration">
@@ -217,6 +244,11 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+Q</string>
+   </property>
+  </action>
+  <action name="actionShutdown_Amp_Server">
+   <property name="text">
+    <string>Shutdown Amp Server...</string>
    </property>
   </action>
  </widget>
