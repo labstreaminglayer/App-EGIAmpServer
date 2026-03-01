@@ -9,7 +9,7 @@ project(EGIAmpServer
     DESCRIPTION "EGI AmpServer to LSL bridge"
     HOMEPAGE_URL "https://github.com/labstreaminglayer/App-EGIAmpServer/"
     LANGUAGES CXX
-    VERSION 2.0.0)
+    VERSION 2.0.2)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
