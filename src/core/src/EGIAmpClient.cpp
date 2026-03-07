@@ -375,7 +375,7 @@ void EGIAmpClient::haltAmplifier() {
     streamer_.closeOutlet();
     dinStreamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
-    lastDINValue_ = 0;
+    lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle (no inputs)
     stopFlag_ = false;
     streamLost_ = false;
     ampRestarted_ = false;
@@ -1017,7 +1017,7 @@ void EGIAmpClient::readPacketFormat2() {
 
                 // Track DIN changes (pushed after the loop with per-sample timestamps)
                 if (packet.digitalInputs != lastDINValue_) {
-                    dinEvents.push_back({static_cast<int32_t>(packet.digitalInputs),
+                    dinEvents.push_back({static_cast<int32_t>(static_cast<uint16_t>(~packet.digitalInputs)),
                                          uniquePackets - 1});  // 0-based index among unique samples
                     lastDINValue_ = packet.digitalInputs;
                 }

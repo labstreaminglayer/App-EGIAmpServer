@@ -127,7 +127,7 @@ private:
     uint64_t lastPacketCounter_ = 0;
     uint64_t lastTimeStamp_ = 0;
     uint64_t lastPacketCounterWithTimeStamp_ = 0;
-    uint16_t lastDINValue_ = 0;
+    uint16_t lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle
 
     StatusCallback statusCallback_;
     ErrorCallback errorCallback_;
