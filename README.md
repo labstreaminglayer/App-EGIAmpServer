@@ -306,45 +306,51 @@ eeg_sample, timestamp = eeg_inlet.pull_sample()
 
 ## Digital Inputs (DIN)
 
-The EEG stream includes a `DIN` channel as the last channel, containing the raw 16-bit digital input value from the amplifier's digital I/O port.
+The DIN values are published on a **separate LSL stream** (not as a channel in the EEG stream). The stream is event-driven: a sample is only pushed when the DIN value changes.
 
-### Channel Details
+### Stream Details
 
-- **Label**: `DIN`
-- **Type**: `DIN`
-- **Unit**: `uint16`
-- **Position**: Last channel in the stream (after EEG and any Physio16 channels)
+- **Name**: `EGI NetAmp <amp_id>_DIN`
+- **Type**: `Markers`
+- **Format**: `int32`
+- **Rate**: Irregular (event-driven, only on change)
+- **Channels**: 1 (`DIN`)
 - **Value range**: 0-65535 (0x0000-0xFFFF)
+- **Idle value**: 0 (all inputs off)
+
+The amplifier's DIN lines are **active-low** with internal pull-ups. The application inverts the raw value so that `0` = idle and a set bit = active input.
 
 ### Accessing Individual Bits
-
-The DIN value is transmitted as a float (or int32 in native format), but all 16-bit values are exactly preserved. To access individual bits:
 
 ```python
 import pylsl
 
-streams = pylsl.resolve_byprop('type', 'EEG', timeout=5)
-inlet = pylsl.StreamInlet(streams[0])
+# Resolve the DIN stream (separate from EEG)
+streams = pylsl.resolve_byprop('type', 'Markers', timeout=5)
+din_streams = [s for s in streams if s.name().endswith('_DIN')]
+inlet = pylsl.StreamInlet(din_streams[0])
 
-sample, timestamp = inlet.pull_sample()
-din_value = int(sample[-1])  # Last channel, convert to integer
+# Pull a DIN change event
+sample, timestamp = inlet.pull_sample(timeout=5.0)
+if sample:
+    din_value = int(sample[0])
 
-# Extract individual bits (DIN1-DIN16)
-din1 = (din_value >> 0) & 1   # Bit 0
-din2 = (din_value >> 1) & 1   # Bit 1
-din3 = (din_value >> 2) & 1   # Bit 2
-# ... etc
+    # Extract individual bits (DIN1-DIN16)
+    din1 = (din_value >> 0) & 1   # Bit 0
+    din2 = (din_value >> 1) & 1   # Bit 1
+    din3 = (din_value >> 2) & 1   # Bit 2
+    # ... etc
 
-# Or extract all 16 bits
-bits = [(din_value >> i) & 1 for i in range(16)]
-print(f"DIN1-16: {bits}")
+    # Or extract all 16 bits
+    bits = [(din_value >> i) & 1 for i in range(16)]
+    print(f"DIN1-16: {bits}")
 ```
 
 ### Timing Considerations
 
-The amplifier's internal DIN ADC samples at a fixed 1 kHz rate, regardless of the EEG sample rate:
+The amplifier's internal DIN ADC samples at a fixed 1 kHz rate, regardless of the EEG sample rate. The DIN stream only emits a sample when the value changes, so the effective timing resolution depends on the EEG sample rate (which determines how often the DIN register is read):
 
-| EEG Sample Rate | DIN Behavior | Effective DIN Resolution |
+| EEG Sample Rate | DIN Poll Rate | Effective DIN Resolution |
 |-----------------|--------------|--------------------------|
 | 250 Hz          | Decimated (1 in 4 samples) | 4 ms |
 | 500 Hz          | Decimated (1 in 2 samples) | 2 ms |
@@ -356,7 +362,9 @@ The amplifier's internal DIN ADC samples at a fixed 1 kHz rate, regardless of th
 
 ### Hardware Notes
 
-The NA400/NA410 amplifiers have a 16-bit digital I/O port. By default, all bits are configured for input. The `cmd_SetDigitalInOutDirection` command can configure specific bits for output if needed (consult EGI documentation).
+The NA400/NA410 amplifiers have a 16-bit digital I/O port with active-low inputs (internal pull-ups). When no trigger device is connected, all lines are pulled high and the DIN stream reports `0` (idle). Grounding a line activates the corresponding bit.
+
+The `cmd_SetDigitalInOutDirection` command can configure specific bits for output if needed (consult EGI documentation).
 
 # Acknowledgements
 This application was written to behave near-identically to the BCI2000 AmpServer module that was originally created by EGI.
