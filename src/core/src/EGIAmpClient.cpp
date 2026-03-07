@@ -376,7 +376,6 @@ void EGIAmpClient::haltAmplifier() {
     dinStreamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
     lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle (no inputs)
-    stopFlag_ = false;
     streamLost_ = false;
     ampRestarted_ = false;
     recoveryAttempts_ = 0;
