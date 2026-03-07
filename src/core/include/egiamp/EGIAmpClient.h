@@ -54,7 +54,7 @@ public:
     // Dynamic impedance mode control (for GUI toggle while streaming)
     // Returns false if not currently streaming or if operation fails
     bool startImpedanceMode();
-    bool stopImpedanceMode();
+    void stopImpedanceMode();
     bool isImpedanceModeActive() const;
 
     // Shutdown the Amp Server process (cmd_Exit)
@@ -78,10 +78,10 @@ public:
     void run();
 
 private:
-    void emitStatus(const std::string& message);
-    void emitError(const std::string& message);
-    void emitChannelCount(int count);
-    void emitSensor(NetCode code);
+    void emitStatus(const std::string& message) const;
+    void emitError(const std::string& message) const;
+    void emitChannelCount(int count) const;
+    void emitSensor(NetCode code) const;
 
     bool queryAmplifierDetails();
     bool isAmplifierStreaming();

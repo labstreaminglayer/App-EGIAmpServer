@@ -14,7 +14,7 @@ namespace {
 
 // Calculate anti-alias filter delay in seconds based on sample rate
 // These values are from EGI's Anti-Alias Filter Alignment app
-double getFilterDelaySeconds(int sampleRate, bool fastRecovery) {
+double getFilterDelaySeconds(const int sampleRate, const bool fastRecovery) {
     if (fastRecovery) {
         return 0.0;  // Native rate has no FPGA filter delay
     }
@@ -68,25 +68,25 @@ bool EGIAmpClient::isStreaming() const {
     return readerThread_ != nullptr;
 }
 
-void EGIAmpClient::emitStatus(const std::string& message) {
+void EGIAmpClient::emitStatus(const std::string& message) const {
     if (statusCallback_) {
         statusCallback_(message);
     }
 }
 
-void EGIAmpClient::emitError(const std::string& message) {
+void EGIAmpClient::emitError(const std::string& message) const {
     if (errorCallback_) {
         errorCallback_(message);
     }
 }
 
-void EGIAmpClient::emitChannelCount(int count) {
+void EGIAmpClient::emitChannelCount(const int count) const {
     if (channelCountCallback_) {
         channelCountCallback_(count);
     }
 }
 
-void EGIAmpClient::emitSensor(NetCode code) {
+void EGIAmpClient::emitSensor(const NetCode code) const {
     if (sensorCallback_) {
         sensorCallback_(code);
     }
@@ -186,10 +186,10 @@ bool EGIAmpClient::isAmplifierStreaming() {
         connection_.setDataStreamTimeout(std::chrono::seconds(2));
 
         // Try to read a packet header
-        AmpDataPacketHeader header;
+        AmpDataPacketHeader header{};
         stream.read(reinterpret_cast<char*>(&header), sizeof(header));
 
-        bool wasStreaming = stream.good();
+        const bool wasStreaming = stream.good();
 
         // Stop listening and reconnect the data stream to clear any buffered data
         connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
@@ -223,17 +223,17 @@ int EGIAmpClient::detectSampleRate() {
         uint64_t lastPacketCounter = 0;
         int uniqueSampleCount = 0;
         bool netCodeCaptured = false;
-        const int packetsToRead = 1000;  // Read ~1 second of packets
+        constexpr int packetsToRead = 1000;  // Read ~1 second of packets
 
         for (int i = 0; i < packetsToRead && stream.good(); i++) {
-            AmpDataPacketHeader header;
+            AmpDataPacketHeader header{};
             stream.read(reinterpret_cast<char*>(&header), sizeof(header));
             header.ampID = big_to_native(header.ampID);
             header.length = big_to_native(header.length);
 
-            int nSamples = header.length / sizeof(PacketFormat2);
+            const int nSamples = header.length / sizeof(PacketFormat2);
             for (int s = 0; s < nSamples && stream.good(); s++) {
-                PacketFormat2 packet;
+                PacketFormat2 packet{};
                 stream.read(reinterpret_cast<char*>(&packet), sizeof(packet));
 
                 // Capture net code from the first packet
@@ -259,9 +259,9 @@ int EGIAmpClient::detectSampleRate() {
 
         if (uniqueSampleCount > 1 && lastTimestamp > firstTimestamp) {
             // timeStamp is in microseconds
-            double durationUs = static_cast<double>(lastTimestamp - firstTimestamp);
-            double durationSec = durationUs / 1000000.0;
-            double rate = (uniqueSampleCount - 1) / durationSec;
+            const auto durationUs = static_cast<double>(lastTimestamp - firstTimestamp);
+            const double durationSec = durationUs / 1000000.0;
+            const double rate = (uniqueSampleCount - 1) / durationSec;
 
             // Round to nearest standard rate (250, 500, 1000)
             if (rate < 375) return 250;
@@ -298,8 +298,8 @@ bool EGIAmpClient::queryAmpState() {
 bool EGIAmpClient::initAmplifier() {
     emitStatus("Initializing Amplifier...\n");
 
-    int ampId = config_.amplifierId;
-    std::string sampleRate = std::to_string(config_.sampleRate);
+    const int ampId = config_.amplifierId;
+    const std::string sampleRate = std::to_string(config_.sampleRate);
 
     // Stop and power off first to reset state
     connection_.sendCommand("cmd_Stop", ampId, 0, "0");
@@ -308,7 +308,7 @@ bool EGIAmpClient::initAmplifier() {
     // Set sample rate
     // Native rates: 500, 1000, 2000, 4000, 8000 (no FPGA anti-alias filter, lower latency)
     // Decimated rates: 250, 500, 1000 (FPGA anti-alias filter, higher latency)
-    bool useNative = config_.sampleRate > 1000 ||
+    const bool useNative = config_.sampleRate > 1000 ||
                      (config_.fastRecovery && config_.sampleRate >= 500);
 
     if (useNative) {
@@ -395,11 +395,10 @@ bool EGIAmpClient::startStreaming() {
     }
 
     // Check if amplifier is already streaming data
-    bool ampRunning = isAmplifierStreaming();
 
-    if (ampRunning) {
+    if (bool ampRunning = isAmplifierStreaming()) {
         // Detect the current sample rate
-        int detectedRate = detectSampleRate();
+        const int detectedRate = detectSampleRate();
 
         // Determine if we need to reinitialize
         bool needsReinit = false;
@@ -427,8 +426,8 @@ bool EGIAmpClient::startStreaming() {
                        " Hz, reinitializing for " + std::to_string(config_.sampleRate) + " Hz...\n");
             // Stop, change rate, restart (no power cycle)
             connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
-            std::string rateStr = std::to_string(config_.sampleRate);
-            bool useNative = config_.sampleRate > 1000 ||
+            const std::string rateStr = std::to_string(config_.sampleRate);
+            const bool useNative = config_.sampleRate > 1000 ||
                              (config_.fastRecovery && config_.sampleRate >= 500);
             if (useNative) {
                 connection_.sendCommand("cmd_SetNativeRate", config_.amplifierId, 0, rateStr);
@@ -487,7 +486,7 @@ bool EGIAmpClient::startStreaming() {
     physioConnectionStatus_ = 0;
     try {
         auto& notifStream = connection_.notificationStream();
-        std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
+        const std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
         for (int attempt = 0; attempt < 10; attempt++) {
             notifStream.clear();  // Reset stream state after any prior timeout
@@ -500,8 +499,7 @@ bool EGIAmpClient::startStreaming() {
             }
 
             std::string notification(notifBuffer);
-            std::smatch match;
-            if (std::regex_search(notification, match, statusRegex)) {
+            if (std::smatch match; std::regex_search(notification, match, statusRegex)) {
                 physioConnectionStatus_ = std::stoi(match[1].str());
                 emitStatus("Physio16 connection status: " + std::to_string(physioConnectionStatus_) +
                            " (" + (physioConnectionStatus_ == 0 ? "none" :
@@ -594,7 +592,7 @@ bool EGIAmpClient::startImpedanceMode() {
     if (nChannels <= 0) {
         nChannels = details_.channelCount;
     }
-    std::string streamName = config_.streamName() + "_Impedance";
+    const std::string streamName = config_.streamName() + "_Impedance";
     impedanceStreamer_.createImpedanceOutlet(streamName, nChannels, config_.serverAddress, details_);
     emitStatus("Impedance stream created.\n");
 
@@ -607,9 +605,9 @@ bool EGIAmpClient::startImpedanceMode() {
     return true;
 }
 
-bool EGIAmpClient::stopImpedanceMode() {
+void EGIAmpClient::stopImpedanceMode() {
     if (!impedanceModeActive_) {
-        return true;  // Already stopped
+        return;  // Already stopped
     }
 
     emitStatus("Stopping impedance mode...\n");
@@ -627,7 +625,6 @@ bool EGIAmpClient::stopImpedanceMode() {
 
     impedanceModeActive_ = false;
     emitStatus("Impedance mode stopped.\n");
-    return true;
 }
 
 bool EGIAmpClient::isImpedanceModeActive() const {
@@ -700,7 +697,7 @@ void EGIAmpClient::processNotifications() {
         }
 
         std::string notification(response);
-        if (notification.length() > 0) {
+        if (!notification.empty()) {
             // Push to LSL notification stream
             notificationStreamer_.pushNotification(notification, lsl::local_clock());
 
@@ -746,7 +743,7 @@ void EGIAmpClient::readPacketFormat2() {
     uint64_t rateCheckStartTimestamp = 0;
     uint64_t rateCheckStartCounter = 0;
     int rateCheckSampleCount = 0;
-    const int RATE_CHECK_SAMPLES = 500;  // Samples to measure over
+    constexpr int RATE_CHECK_SAMPLES = 500;  // Samples to measure over
 
     stream.clear();
     emitStatus("Starting stream.\n");
@@ -754,7 +751,7 @@ void EGIAmpClient::readPacketFormat2() {
     while (!stopFlag_) {
         // Inner read loop — reads packets until stream dies or stopFlag
         while (stream.good() && !stopFlag_) {
-            AmpDataPacketHeader header;
+            AmpDataPacketHeader header{};
             stream.clear();
             connection_.setDataStreamTimeout(std::chrono::seconds(5));
             stream.read(reinterpret_cast<char*>(&header), sizeof(header));
@@ -778,7 +775,7 @@ void EGIAmpClient::readPacketFormat2() {
             std::vector<DINEvent> dinEvents;
 
             for (int s = 0; s < nSamples && stream.good(); s++) {
-                PacketFormat2 packet;
+                PacketFormat2 packet{};
                 stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
 
                 if (!streamer_.hasOutlet()) {
@@ -1090,8 +1087,8 @@ void EGIAmpClient::readPacketFormat2() {
     }
 }
 
-bool EGIAmpClient::attemptRecovery(bool reinitialize) {
-    int attempt = ++recoveryAttempts_;
+bool EGIAmpClient::attemptRecovery(const bool reinitialize) {
+    const int attempt = ++recoveryAttempts_;
     if (attempt > 5) {
         emitError("Maximum recovery attempts (5) exceeded. Giving up.");
         stopFlag_ = true;
@@ -1102,8 +1099,8 @@ bool EGIAmpClient::attemptRecovery(bool reinitialize) {
     emitStatus("Attempting stream recovery (attempt " + std::to_string(attempt) + "/5)...\n");
 
     try {
-        int previousRate = config_.sampleRate;
-        int previousPhysioStatus = physioConnectionStatus_;
+        const int previousRate = config_.sampleRate;
+        const int previousPhysioStatus = physioConnectionStatus_;
 
         if (reinitialize) {
             // Proactive recovery: reinitialize the amp with our original settings.
@@ -1154,7 +1151,7 @@ bool EGIAmpClient::attemptRecovery(bool reinitialize) {
             // Even when the rate matches, the mode (native vs decimated) might differ.
             // Close the outlet when we can't confirm the mode is the same.
             if (!needsNewOutlet && streamer_.hasOutlet()) {
-                bool weUseNative = config_.sampleRate > 1000 ||
+                const bool weUseNative = config_.sampleRate > 1000 ||
                                    (config_.fastRecovery && config_.sampleRate >= 500);
                 if (config_.sampleRate == 1000) {
                     // At 1000 Hz, there is no way to distinguish native from decimated
@@ -1229,7 +1226,7 @@ void EGIAmpClient::reQueryPhysioStatus() {
         connection_.sendCommand("cmd_GetPhysioConnectionStatus", config_.amplifierId, 0, "0");
 
         auto& notifStream = connection_.notificationStream();
-        std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
+        const std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
         for (int attempt = 0; attempt < 10; attempt++) {
             notifStream.clear();
@@ -1270,18 +1267,18 @@ void EGIAmpClient::readPacketFormat1() {
     emitStatus("Starting stream.\n");
 
     while (stream.good() && !stopFlag_) {
-        AmpDataPacketHeader header;
+        AmpDataPacketHeader header{};
         stream.read(reinterpret_cast<char*>(&header), sizeof(header));
-        double batchTimestamp = lsl::local_clock();
+        const double batchTimestamp = lsl::local_clock();
 
         header.ampID = big_to_native(header.ampID);
         header.length = big_to_native(header.length);
 
-        int nSamples = header.length / sizeof(PacketFormat1);
+        const int nSamples = header.length / sizeof(PacketFormat1);
         std::vector<std::vector<float>> chunk;
 
         for (int s = 0; s < nSamples && stream.good(); s++) {
-            PacketFormat1 packet;
+            PacketFormat1 packet{};
             stream.clear();
             connection_.setDataStreamTimeout(std::chrono::seconds(1));
             stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat1));
@@ -1291,7 +1288,7 @@ void EGIAmpClient::readPacketFormat1() {
                 emitStatus("Stream Started.\n");
 
                 // Extract net code from header
-                auto* headerBytes = reinterpret_cast<uint8_t*>(packet.header);
+                const auto* headerBytes = reinterpret_cast<uint8_t*>(packet.header);
                 uint8_t netCodeByte = (headerBytes[26] & 0x78) >> 3;
                 details_.netCode = static_cast<NetCode>(netCodeByte);
 
