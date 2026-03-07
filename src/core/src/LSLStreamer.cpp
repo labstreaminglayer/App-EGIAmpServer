@@ -163,6 +163,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     lsl::xml_element ref = desc.append_child("reference");
     ref.append_child_value("label", "Cz");
     ref.append_child_value("subtracted", "Yes");
+    ref.append_child_value("common_average", "No");
     ref.append_child_value("included_in_stream", "Yes");
 
     // =========================================================================
@@ -200,7 +201,9 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         const ElectrodePosition* pos = getElectrodePosition(eegChannelCount, i);
         if (pos) {
             lsl::xml_element loc = ch.append_child("location");
-            loc.append_child_value("unit", "mm");
+            loc.append_child_value("X", std::to_string(pos->x * 10.0f));
+            loc.append_child_value("Y", std::to_string(pos->y * 10.0f));
+            loc.append_child_value("Z", std::to_string(pos->z * 10.0f));
         }
     }
 
@@ -310,7 +313,6 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
             loc.append_child_value("X", std::to_string(pos->x * 10.0f));
             loc.append_child_value("Y", std::to_string(pos->y * 10.0f));
             loc.append_child_value("Z", std::to_string(pos->z * 10.0f));
-            loc.append_child_value("unit", "mm");
         }
     }
 
@@ -324,14 +326,14 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
 
 void LSLStreamer::pushSample(const std::vector<float>& sample) const {
     if (outlet_) {
-        double t = lsl::local_clock() - timestampOffset_;
+        const double t = lsl::local_clock() - timestampOffset_;
         outlet_->push_sample(sample, t);
     }
 }
 
 void LSLStreamer::pushSampleInt32(const std::vector<int32_t>& sample) const {
     if (outlet_) {
-        double t = lsl::local_clock() - timestampOffset_;
+        const double t = lsl::local_clock() - timestampOffset_;
         outlet_->push_sample(sample, t);
     }
 }
@@ -354,7 +356,7 @@ void LSLStreamer::createDINOutlet(const std::string& streamName,
                                   const std::string& hostname) {
     closeOutlet();
 
-    std::string sourceId = "EGI_" + hostname + "_DIN";
+    const std::string sourceId = "EGI_" + hostname + "_DIN";
     lsl::stream_info info(streamName, "Markers", 1,
                           lsl::IRREGULAR_RATE, lsl::cf_int32, sourceId);
 
