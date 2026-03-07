@@ -59,6 +59,39 @@ The CLI provides a lightweight alternative to the GUI:
 ./EGIAmpServerCLI --address 10.10.10.51 --sample-rate 1000 --align-timestamps
 ```
 
+## Connecting to an Already-Running Amplifier
+
+When another application (e.g., Net Station Acquisition) has already started the amplifier, the CLI's behavior depends on whether you pass any rate or mode flags.
+
+### Default: Non-Destructive Attach
+
+With no rate flags, the CLI detects the running amplifier, measures its current sample rate from the data stream, and attaches without disrupting the existing session:
+
+```bash
+# Attaches to whatever rate/mode the amp is already using
+./EGIAmpServerCLI --address 10.10.10.51
+```
+
+This is safe to use alongside Net Station — it will not stop or reconfigure the amplifier.
+
+### Forcing a Rate or Mode
+
+The following flags cause the CLI to stop, reconfigure, and restart the amplifier — even if it was started by another application:
+
+- `--sample-rate <hz>` — reinitializes if the detected rate differs from the requested rate
+- `--fast-recovery` — reinitializes to ensure native (unfiltered) mode
+- `--align-timestamps` — reinitializes at 500/1000 Hz to ensure decimated (filtered) mode, since the operating mode cannot be distinguished from the data stream alone
+
+**Warning**: Reinitialization will interrupt any active Net Station recording. If you need to coexist with Net Station, omit these flags and let the CLI match the existing configuration.
+
+### Recovery During Streaming
+
+If the amplifier is stopped or restarted externally while the CLI is streaming:
+
+- **Amp powered off by another app** (e.g., Net Station clicks "Off"): The CLI detects stream loss and attempts to reinitialize the amplifier with its original settings.
+- **Amp restarted by another app** (e.g., Net Station reconnects): The CLI detects the new stream, adapts to whatever rate the other app configured, and recreates its LSL outlets if the rate changed.
+- **Amp power-cycled or shutdown**: The CLI waits up to 120 seconds for recovery before giving up.
+
 ## Sample Rate Modes
 
 The NA400/NA410 amplifiers support two operating modes that affect anti-aliasing and latency:
@@ -357,7 +390,7 @@ The mock server generates synthetic sine waves (10-50 Hz) with noise for the EEG
 
 ## Net Station Acquisition Compatibility
 
-When the user 
+See also [Connecting to an Already-Running Amplifier](#connecting-to-an-already-running-amplifier) for details on how the CLI behaves when attaching to an amp started by Net Station.
 
 ### Behavior When EGIAmpServer is Streaming First
 
@@ -399,7 +432,7 @@ When using this application alongside Net Station Acquisition:
 - **Recommended workflow**:
   1. Start Net Station Acquisition
   2. Initialize the amplifier at your desired sample rate (click "On")
-  3. Start EGIAmpServer and click "Link" - it will detect the running amp and match its sample rate
+  3. Start EGIAmpServer (GUI: click "Link", or CLI: run with no rate flags) — it will detect the running amp and match its sample rate
   4. Both applications will now receive data at the correct rate
 
 ## Dropped Packets After Device Shutdown
