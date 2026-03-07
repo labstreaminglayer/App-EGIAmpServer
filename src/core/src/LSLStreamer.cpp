@@ -13,7 +13,7 @@ LSLStreamer::~LSLStreamer() {
 namespace {
 
 // Get the montage filename for a given net code and channel count
-std::string getMontageFilename(NetCode netCode, int channelCount) {
+std::string getMontageFilename(const NetCode netCode, const int channelCount) {
     // Determine if this net includes Cz as an extra channel
     // Standard nets: 32, 64, 128, 256 (Cz is reference, not recorded)
     // Extended nets: 33, 65, 129, 257 (Cz is recorded as last channel)
@@ -48,12 +48,12 @@ std::string getMontageFilename(NetCode netCode, int channelCount) {
             break;
     }
 
-    int fileCount = hasCz ? baseCount + 1 : baseCount;
+    const int fileCount = hasCz ? baseCount + 1 : baseCount;
     return "GSN-HydroCel-" + std::to_string(fileCount) + ".sfp";
 }
 
 // Get cap/sensor name for metadata
-std::string getCapName(NetCode netCode) {
+std::string getCapName(const NetCode netCode) {
     switch (netCode) {
         case NetCode::GSN64_2_0:
             return "Geodesic Sensor Net 64 2.0";
@@ -118,10 +118,10 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     acq.append_child_value("manufacturer", "Magstim EGI");
     acq.append_child_value("model", amplifierTypeName(details.amplifierType));
     if (!details.serialNumber.empty()) {
-        acq.append_child_value("serial_number", details.serialNumber.c_str());
+        acq.append_child_value("serial_number", details.serialNumber);
     }
     if (!details.firmwareVersion.empty()) {
-        acq.append_child_value("firmware_version", details.firmwareVersion.c_str());
+        acq.append_child_value("firmware_version", details.firmwareVersion);
     }
     acq.append_child_value("precision", "24");
 
@@ -129,9 +129,9 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     // Cap/sensor metadata
     // =========================================================================
     lsl::xml_element cap = desc.append_child("cap");
-    cap.append_child_value("name", getCapName(details.netCode).c_str());
+    cap.append_child_value("name", getCapName(details.netCode));
     cap.append_child_value("manufacturer", "Magstim EGI");
-    cap.append_child_value("labeling_scheme", "E1, E2, ...");
+    cap.append_child_value("labelscheme", "E1, E2, ...");
 
     // Sensor material properties
     switch (details.netCode) {
@@ -182,7 +182,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         } else {
             label = "E" + std::to_string(i + 1);
         }
-        ch.append_child_value("label", label.c_str());
+        ch.append_child_value("label", label);
         ch.append_child_value("type", "EEG");
 
         if (nativeFormat) {
@@ -190,7 +190,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
             // Conversion factor: multiply by this to get microvolts
             if (details.scalingFactor != 0) {
                 ch.append_child_value("conversion",
-                                      std::to_string(details.scalingFactor).c_str());
+                                      std::to_string(details.scalingFactor));
             }
         } else {
             ch.append_child_value("unit", "microvolts");
@@ -200,9 +200,6 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
         const ElectrodePosition* pos = getElectrodePosition(eegChannelCount, i);
         if (pos) {
             lsl::xml_element loc = ch.append_child("location");
-            loc.append_child_value("X", std::to_string(pos->x * 10.0f).c_str());
-            loc.append_child_value("Y", std::to_string(pos->y * 10.0f).c_str());
-            loc.append_child_value("Z", std::to_string(pos->z * 10.0f).c_str());
             loc.append_child_value("unit", "mm");
         }
     }
@@ -213,7 +210,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
 
         // Channel label: PIB1, PIB2, ... PIB32
         std::string label = "PIB" + std::to_string(i + 1);
-        ch.append_child_value("label", label.c_str());
+        ch.append_child_value("label", label);
         ch.append_child_value("type", "AUX");
 
         if (nativeFormat) {
@@ -223,7 +220,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
             int portChannel = i % 16;
             float conversion = (portChannel < 8) ? PHYSIO_SCALING_1_8 : PHYSIO_SCALING_9_16;
             ch.append_child_value("conversion",
-                                  std::to_string(conversion).c_str());
+                                  std::to_string(conversion));
         } else {
             ch.append_child_value("unit", "microvolts");
         }
@@ -250,7 +247,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     if (details.amplifierType == AmplifierType::NA400 ||
         details.amplifierType == AmplifierType::NA410) {
         double cutoff = sampleRate * 0.4;  // Approximately 40% of sample rate
-        lowpass.append_child_value("cutoff", std::to_string(cutoff).c_str());
+        lowpass.append_child_value("cutoff", std::to_string(cutoff));
     }
 
     // DC blocking highpass
@@ -285,7 +282,7 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
     acq.append_child_value("manufacturer", "Magstim EGI");
     acq.append_child_value("model", amplifierTypeName(details.amplifierType));
     if (!details.serialNumber.empty()) {
-        acq.append_child_value("serial_number", details.serialNumber.c_str());
+        acq.append_child_value("serial_number", details.serialNumber);
     }
 
     // Channel metadata
@@ -302,7 +299,7 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
         } else {
             label = "E" + std::to_string(i + 1);
         }
-        ch.append_child_value("label", label.c_str());
+        ch.append_child_value("label", label);
         ch.append_child_value("type", "Impedance");
         ch.append_child_value("unit", "kohms");
 
@@ -310,9 +307,9 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
         const ElectrodePosition* pos = getElectrodePosition(channelCount, i);
         if (pos) {
             lsl::xml_element loc = ch.append_child("location");
-            loc.append_child_value("X", std::to_string(pos->x * 10.0f).c_str());
-            loc.append_child_value("Y", std::to_string(pos->y * 10.0f).c_str());
-            loc.append_child_value("Z", std::to_string(pos->z * 10.0f).c_str());
+            loc.append_child_value("X", std::to_string(pos->x * 10.0f));
+            loc.append_child_value("Y", std::to_string(pos->y * 10.0f));
+            loc.append_child_value("Z", std::to_string(pos->z * 10.0f));
             loc.append_child_value("unit", "mm");
         }
     }
@@ -325,14 +322,14 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
     outlet_ = std::make_unique<lsl::stream_outlet>(info, SAMPLES_PER_CHUNK);
 }
 
-void LSLStreamer::pushSample(const std::vector<float>& sample) {
+void LSLStreamer::pushSample(const std::vector<float>& sample) const {
     if (outlet_) {
         double t = lsl::local_clock() - timestampOffset_;
         outlet_->push_sample(sample, t);
     }
 }
 
-void LSLStreamer::pushSampleInt32(const std::vector<int32_t>& sample) {
+void LSLStreamer::pushSampleInt32(const std::vector<int32_t>& sample) const {
     if (outlet_) {
         double t = lsl::local_clock() - timestampOffset_;
         outlet_->push_sample(sample, t);
@@ -340,14 +337,14 @@ void LSLStreamer::pushSampleInt32(const std::vector<int32_t>& sample) {
 }
 
 void LSLStreamer::pushChunk(const std::vector<std::vector<float>>& chunk,
-                            double timestamp) {
+                            const double timestamp) const {
     if (outlet_ && !chunk.empty()) {
         outlet_->push_chunk(chunk, timestamp - timestampOffset_);
     }
 }
 
 void LSLStreamer::pushChunkInt32(const std::vector<std::vector<int32_t>>& chunk,
-                                 double timestamp) {
+                                 const double timestamp) const {
     if (outlet_ && !chunk.empty()) {
         outlet_->push_chunk(chunk, timestamp - timestampOffset_);
     }
@@ -370,7 +367,7 @@ void LSLStreamer::createDINOutlet(const std::string& streamName,
     outlet_ = std::make_unique<lsl::stream_outlet>(info, 0);
 }
 
-void LSLStreamer::pushDINEvent(int32_t value, double timestamp) {
+void LSLStreamer::pushDINEvent(const int32_t value, const double timestamp) const {
     if (outlet_) {
         outlet_->push_sample(&value, timestamp);
     }
@@ -380,7 +377,7 @@ void LSLStreamer::createNotificationOutlet(const std::string& streamName,
                                             const std::string& hostname) {
     closeOutlet();
 
-    std::string sourceId = "EGI_" + hostname + "_notifications";
+    const std::string sourceId = "EGI_" + hostname + "_notifications";
     lsl::stream_info info(streamName, "Markers", 1,
                           lsl::IRREGULAR_RATE, lsl::cf_string, sourceId);
 
@@ -392,7 +389,7 @@ void LSLStreamer::createNotificationOutlet(const std::string& streamName,
     outlet_ = std::make_unique<lsl::stream_outlet>(info, 0);
 }
 
-void LSLStreamer::pushNotification(const std::string& text, double timestamp) {
+void LSLStreamer::pushNotification(const std::string& text, const double timestamp) const {
     if (outlet_) {
         outlet_->push_sample(&text, timestamp);
     }

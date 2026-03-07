@@ -40,24 +40,24 @@ public:
 
     // Push a single DIN event with an explicit timestamp.
     // No timestampOffset_ is applied (DIN is not subject to the FPGA filter).
-    void pushDINEvent(int32_t value, double timestamp);
+    void pushDINEvent(int32_t value, double timestamp) const;
 
     // Push a notification string with an explicit timestamp.
-    void pushNotification(const std::string& text, double timestamp);
+    void pushNotification(const std::string& text, double timestamp) const;
 
     // Push a single sample (timestamp taken at call time).
-    void pushSample(const std::vector<float>& sample);
-    void pushSampleInt32(const std::vector<int32_t>& sample);
+    void pushSample(const std::vector<float>& sample) const;
+    void pushSampleInt32(const std::vector<int32_t>& sample) const;
 
     // Push a chunk of samples with an explicit timestamp (from lsl::local_clock())
     // associated with the LAST sample.  LSL infers earlier samples' timestamps
     // from the declared sample rate.
-    void pushChunk(const std::vector<std::vector<float>>& chunk, double timestamp);
-    void pushChunkInt32(const std::vector<std::vector<int32_t>>& chunk, double timestamp);
+    void pushChunk(const std::vector<std::vector<float>>& chunk, double timestamp) const;
+    void pushChunkInt32(const std::vector<std::vector<int32_t>>& chunk, double timestamp) const;
 
-    bool isNativeFormat() const { return nativeFormat_; }
+    [[nodiscard]] bool isNativeFormat() const { return nativeFormat_; }
 
-    bool hasOutlet() const { return outlet_ != nullptr; }
+    [[nodiscard]] bool hasOutlet() const { return outlet_ != nullptr; }
 
     // Set timestamp offset in seconds (subtracted from current time when pushing)
     void setTimestampOffset(double offsetSeconds) { timestampOffset_ = offsetSeconds; }
