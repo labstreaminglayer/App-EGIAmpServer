@@ -457,6 +457,16 @@ bool EGIAmpClient::startStreaming() {
                 config_.sampleRate = detectedRate;
                 emitStatus("Using detected sample rate: " + std::to_string(detectedRate) + " Hz\n");
             }
+
+            // At 1000 Hz, native and decimated modes are indistinguishable in the
+            // data stream. Warn the user but trust their configuration selection.
+            if (config_.sampleRate == 1000) {
+                const bool weUseNative = config_.fastRecovery;
+                emitStatus("Warning: Cannot verify whether the amplifier is running in native or "
+                           "decimated mode at 1000 Hz. Assuming " +
+                           std::string(weUseNative ? "native" : "decimated") +
+                           " mode as configured.\n");
+            }
         }
     } else {
         emitStatus("Amplifier is not running, initializing...\n");
