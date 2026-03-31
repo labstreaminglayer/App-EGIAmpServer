@@ -1160,14 +1160,14 @@ bool EGIAmpClient::attemptRecovery(const bool reinitialize) {
             // Even when the rate matches, the mode (native vs decimated) might differ.
             // Close the outlet when we can't confirm the mode is the same.
             if (!needsNewOutlet && streamer_.hasOutlet()) {
-                const bool weUseNative = config_.sampleRate > 1000 ||
-                                   (config_.fastRecovery && config_.sampleRate >= 500);
                 if (config_.sampleRate == 1000) {
                     // At 1000 Hz, there is no way to distinguish native from decimated
-                    // in the data stream. Close to be safe.
-                    needsNewOutlet = true;
-                    emitStatus("Recreating outlet: cannot confirm mode match at 1000 Hz.\n");
-                } else if (config_.sampleRate == 500 && weUseNative) {
+                    // in the data stream. Trust user's configured mode selection.
+                    emitStatus("Warning: Cannot verify whether the amplifier is running in native or "
+                               "decimated mode at 1000 Hz. Assuming " +
+                               std::string(config_.fastRecovery ? "native" : "decimated") +
+                               " mode as configured.\n");
+                } else if (config_.sampleRate == 500 && config_.fastRecovery) {
                     // Net Station always uses decimated 500 Hz, but we use native.
                     needsNewOutlet = true;
                     emitStatus("Recreating outlet: our native 500 Hz vs external decimated 500 Hz.\n");
