@@ -815,7 +815,7 @@ void EGIAmpClient::readPacketFormat2() {
                     std::string streamName = config_.streamName();
                     streamer_.createOutlet(streamName, eegChannelCount, physioChannelCount, 0,
                                            config_.sampleRate, config_.serverAddress, details_,
-                                           config_.nativeFormat);
+                                           config_.nativeFormat, config_.modeSuffix());
 
                     // Create separate DIN event stream (irregular rate, no filter delay)
                     dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
@@ -914,7 +914,7 @@ void EGIAmpClient::readPacketFormat2() {
                                                     (physioConnectionStatus_ > 0) ? 16 : 0;
                                 streamer_.createOutlet(streamName, nChannels + 1, physioChCount, 0,
                                                        config_.sampleRate, config_.serverAddress, details_,
-                                                       config_.nativeFormat);
+                                                       config_.nativeFormat, config_.modeSuffix());
                                 dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
 
                                 // Apply timestamp offset for filter delay compensation if enabled

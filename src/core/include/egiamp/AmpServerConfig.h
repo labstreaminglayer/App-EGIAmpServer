@@ -24,6 +24,15 @@ struct AmpServerConfig {
     /// .51 → "EGINetAmp_51", .52 → "EGINetAmp_52", localhost/127.* → "EGINetAmp_mock".
     std::string streamName() const;
 
+    /// Suffix for LSL source ID to distinguish native/decimated mode and timestamp alignment.
+    /// Ensures LSL consumers won't auto-reconnect across incompatible configurations.
+    std::string modeSuffix() const {
+        const bool native = sampleRate > 1000 || (fastRecovery && sampleRate >= 500);
+        std::string s = native ? "_native" : "_decimated";
+        if (alignTimestamps && !native) s += "_aligned";
+        return s;
+    }
+
     static AmpServerConfig loadFromFile(const std::string& filename);
     void saveToFile(const std::string& filename) const;
 };

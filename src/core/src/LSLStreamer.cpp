@@ -88,7 +88,8 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
                                int physioChannelCount, int dinChannelCount, int sampleRate,
                                const std::string& hostname,
                                const AmplifierDetails& details,
-                               bool nativeFormat) {
+                               bool nativeFormat,
+                               const std::string& modeSuffix) {
     // Close existing outlet if any
     closeOutlet();
 
@@ -102,7 +103,7 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
     std::string sourceId = "EGI_" + hostname +
                            "_ch" + std::to_string(totalChannelCount) +
                            "_sr" + std::to_string(sampleRate) +
-                           formatSuffix;
+                           formatSuffix + modeSuffix;
     lsl::channel_format_t channelFormat = nativeFormat ? lsl::cf_int32 : lsl::cf_float32;
     lsl::stream_info info(streamName, "EEG", totalChannelCount,
                           static_cast<double>(sampleRate),
@@ -399,6 +400,7 @@ void LSLStreamer::pushNotification(const std::string& text, const double timesta
 
 void LSLStreamer::closeOutlet() {
     outlet_.reset();
+    timestampOffset_ = 0.0;
 }
 
 } // namespace egiamp

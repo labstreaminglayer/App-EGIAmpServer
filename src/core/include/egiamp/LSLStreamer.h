@@ -26,7 +26,8 @@ public:
                       int physioChannelCount, int dinChannelCount, int sampleRate,
                       const std::string& hostname,
                       const AmplifierDetails& details,
-                      bool nativeFormat = false);
+                      bool nativeFormat = false,
+                      const std::string& modeSuffix = "");
 
     void createImpedanceOutlet(const std::string& streamName, int channelCount,
                                const std::string& hostname,
