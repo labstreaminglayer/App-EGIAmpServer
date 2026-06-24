@@ -20,3 +20,13 @@ settings.local.json
 
 # macOS
 .DS_Store
+
+# misc
+.codegraph/
+delay_capture*/
+
+# Audio latency test outputs (large XDF recordings, plots, CLI logs)
+scripts/audio_latency_test/recordings/
+
+# Python cache
+__pycache__/

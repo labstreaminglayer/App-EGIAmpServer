@@ -24,6 +24,15 @@ struct AmpServerConfig {
     // which the device quantizes to 8 @ 250 Hz and 16 @ 500 Hz (both 32 ms) and
     // 33 @ 1000 Hz. Applied only in decimated mode; ignored for native rates.
     int physioAlignDelayMs = 33;
+    // System/pipeline latency (ms) subtracted from every pushed LSL timestamp
+    // (EEG, physio, and DIN alike) to compensate for the time between
+    // digitization and the sample being available to time-stamp in this client:
+    // device firmware + network transmission + our read path. Measured ~5 ms via
+    // scripts/audio_latency_test (native modes). Applied unconditionally, on top
+    // of the decimated-only FPGA filter offset. Default intentionally slightly
+    // under the measured value so we never back-date a sample *before* its event
+    // (a response cannot precede its stimulus); user-tunable.
+    double systemDelayMs = 4.5;
     bool impedance = false;
     bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
 

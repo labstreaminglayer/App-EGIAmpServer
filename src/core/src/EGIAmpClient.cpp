@@ -818,8 +818,12 @@ void EGIAmpClient::readPacketFormat2() {
             stream.read(reinterpret_cast<char*>(&header), sizeof(header));
 
             // Capture arrival time before any per-sample processing so that
-            // all samples in this batch share the same base timestamp.
-            double batchTimestamp = lsl::local_clock();
+            // all samples in this batch share the same base timestamp. Subtract
+            // the system/pipeline delay (firmware + network + read path) so the
+            // timestamp reflects digitization time, not arrival. This flows to
+            // both the EEG/physio chunk and the DIN events (derived below), and
+            // is on top of the decimated-only filter offset applied in pushChunk.
+            double batchTimestamp = lsl::local_clock() - config_.systemDelayMs / 1000.0;
 
             header.ampID = big_to_native(header.ampID);
             header.length = big_to_native(header.length);

@@ -35,7 +35,6 @@ The CLI provides a lightweight alternative to the GUI:
 - `--amp-id <id>` - Amplifier ID (default: 0)
 - `--sample-rate <hz>` - Sample rate in Hz (default: 1000). Forces amplifier to this rate if already running at a different rate. Valid rates: 250, 500, 1000 (decimated) or 500, 1000, 2000, 4000, 8000 (native).
 - `--fast-recovery` - Use native rate mode (no FPGA anti-alias filter) for lower latency. See [Sample Rate Modes](#sample-rate-modes).
-- `--align-timestamps` - Adjust timestamps to compensate for anti-alias filter delay. See [Timestamp Alignment](#timestamp-alignment).
 - `--impedance` - Enable impedance testing mode
 - `--native-format` - Transmit raw int32 ADC counts instead of float microvolts
 - `--shutdown` - Shutdown the Amp Server (terminates all connections)
@@ -52,11 +51,11 @@ The CLI provides a lightweight alternative to the GUI:
 # With native format (int32 ADC counts)
 ./EGIAmpServerCLI --address 10.10.10.51 --native-format
 
-# Low-latency mode (fast recovery)
+# Low-latency mode (fast recovery / native)
 ./EGIAmpServerCLI --address 10.10.10.51 --sample-rate 1000 --fast-recovery
 
-# With timestamp alignment for filter delay
-./EGIAmpServerCLI --address 10.10.10.51 --sample-rate 1000 --align-timestamps
+# Decimated mode — timestamp compensation is applied automatically
+./EGIAmpServerCLI --address 10.10.10.51 --sample-rate 1000
 ```
 
 ## Connecting to an Already-Running Amplifier
@@ -78,9 +77,8 @@ This is safe to use alongside Net Station — it will not stop or reconfigure th
 
 The following flags cause the CLI to stop, reconfigure, and restart the amplifier — even if it was started by another application:
 
-- `--sample-rate <hz>` — reinitializes if the detected rate differs from the requested rate
+- `--sample-rate <hz>` — reinitializes if the detected rate differs from the requested rate. At 500/1000 Hz, where native and decimated are indistinguishable in the data stream, requesting a decimated rate also forces reinitialization to guarantee decimated mode (so the automatic [timestamp compensation](#timestamp-compensation) is correct)
 - `--fast-recovery` — reinitializes to ensure native (unfiltered) mode
-- `--align-timestamps` — reinitializes at 500/1000 Hz to ensure decimated (filtered) mode, since the operating mode cannot be distinguished from the data stream alone
 
 **Warning**: Reinitialization will interrupt any active Net Station recording. If you need to coexist with Net Station, omit these flags and let the CLI match the existing configuration.
 
@@ -100,14 +98,14 @@ The NA400/NA410 amplifiers support two operating modes that affect anti-aliasing
 
 Uses the FPGA's digital anti-aliasing filter to downsample from the ADC's native rate. This provides:
 - Better frequency response (~400 Hz bandwidth at 1000 Hz sample rate)
-- Higher latency due to filter delay (36-112 samples depending on rate)
+- Higher latency due to the filter group delay (36-111 ms depending on rate), which the app compensates for automatically — see [Timestamp Compensation](#timestamp-compensation)
 
 Available decimated rates: 250, 500, 1000 Hz
 
 ### Native Mode (Fast Recovery)
 
 Bypasses the FPGA filter and samples directly at the requested rate. This provides:
-- Lower latency (~3 samples)
+- Lower latency (no filter group delay)
 - Reduced bandwidth (~1/4 of sample rate, e.g., 250 Hz at 1000 Hz sample rate)
 - Optimized for EEG-TMS and real-time BCI applications
 
@@ -117,32 +115,52 @@ Use `--fast-recovery` to enable native mode for rates that support both modes (5
 
 ### Filter Delay by Sample Rate
 
-| Mode | Sample Rate | Filter Delay (samples) | Filter Delay (ms) |
-|------|-------------|------------------------|-------------------|
-| Decimated | 250 Hz | 112 | 448 ms |
-| Decimated | 500 Hz | 66 | 132 ms |
-| Decimated | 1000 Hz | 36 | 36 ms |
-| Native | 500-8000 Hz | ~3 | ~3 ms |
+DIN→EEG group delay of the FPGA anti-alias filter (decimated mode only), measured with `scripts/delay_capture_sweep.py`:
 
-## Timestamp Alignment
+| Mode | Sample Rate | Filter delay (ms) | (samples) |
+|------|-------------|-------------------|-----------|
+| Decimated | 250 Hz | 111 | ~28 |
+| Decimated | 500 Hz | 61 | ~30 |
+| Decimated | 1000 Hz | 36 | 36 |
+| Native | 500-8000 Hz | 0 | 0 |
 
-When using decimated mode, the FPGA anti-aliasing filter introduces a delay between when brain activity occurs and when it appears in the data stream. The `--align-timestamps` option compensates for this by adjusting LSL timestamps backward by the filter delay amount.
+## Timestamp Compensation
 
-### When to Use
+The application adjusts the LSL timestamp it assigns to each sample so that the timestamp reflects **when the signal actually occurred**, not when the bytes happened to arrive at this client. This makes EEG, Physio16, and DIN events line up with each other and with external event markers. Three corrections are applied; together they are what we call timestamp compensation.
 
-- **ERP analysis**: Enable `--align-timestamps` to align EEG data with event markers
-- **Real-time BCI**: Use `--fast-recovery` instead (no filter delay to compensate)
-- **Raw recording**: Disable alignment if you prefer unmodified timestamps
+There is **no flag to toggle this** — it follows the configured mode automatically. (The old `--align-timestamps` flag was removed.) The app trusts the mode you configure: a decimated rate means the filter corrections apply; a native rate (`--fast-recovery`, or any rate above 1000 Hz) means they do not. At 500/1000 Hz, where native and decimated are indistinguishable in the data stream, the app assumes the mode you asked for (and, when forcing a rate, reinitializes to guarantee it).
 
-### Limitations
+### 1. System (pipeline) delay — always applied
 
-**Important**: Timestamp alignment only works correctly when this application initializes the amplifier. If Net Station or another application previously initialized the amplifier, the current operating mode (decimated vs native) cannot be queried from AmpServer. In this case:
+Every pushed timestamp (EEG, Physio16, **and** DIN) is moved earlier by `systemdelayms` to account for the time between digitization and the sample becoming available here: device firmware + network transmission + our read path. Measured at ~5 ms in native mode using `scripts/audio_latency_test`.
 
-1. The application will reinitialize the amplifier to ensure the correct mode
-2. This will interrupt any existing Net Station recording
-3. To avoid this, start EGIAmpServer before Net Station, or restart the amplifier
+The default is **4.5 ms** — deliberately a little *under* the measured value. Under-compensating is the safe direction: it guarantees a sample is never back-dated to *before* the event that produced it (a response must not precede its stimulus). It is user-configurable; raise it toward the measured latency if you prefer tighter alignment and can accept that risk.
 
-If you need to join an existing Net Station session without reinitialization, do not use `--align-timestamps` unless you are certain of the current mode.
+### 2. FPGA filter offset — decimated mode only
+
+In decimated mode the anti-alias filter delays the EEG relative to the (unfiltered) DIN by the group delay in the table above (111/61/36 ms at 250/500/1000 Hz). The app subtracts this from the EEG/Physio timestamps so filtered EEG lines up with DIN. Native mode has no filter, so nothing is subtracted. DIN itself is never filter-shifted (only the system delay applies to it).
+
+### 3. Physio16 realignment — decimated mode only
+
+The Physio16 (PNS/PIB) acquisition path runs **ahead** of the FPGA-filtered EEG by a fixed ~33 ms in decimated mode, so the same event lands at different sample indices in the EEG vs physio channels of the combined stream. To keep them sample-aligned, the physio channels are buffered (delayed) by `physioaligndelayms` (default **33 ms**, applied as `floor(33 ms × rate)` samples). The physio channels therefore read **zeros for the first ~33 ms** after streaming starts, then real data. Native mode applies no physio delay.
+
+### Configuration
+
+Both values live in the config file (and persist via File → Save Configuration):
+
+```xml
+<settings>
+  ...
+  <physioaligndelayms>33</physioaligndelayms>   <!-- Physio16 realignment, decimated only -->
+  <systemdelayms>4.5</systemdelayms>            <!-- pipeline-latency compensation, always -->
+</settings>
+```
+
+The filter-offset values (111/61/36 ms) are built in. All three were measured on real hardware; see `scripts/audio_latency_test/README.md` (system delay) and `notebooks/delay_inspection.ipynb` (filter and physio delays).
+
+### Coexisting with Net Station
+
+The filter corrections are only correct when the operating mode is known. If another application (e.g. Net Station) already started the amplifier at an ambiguous rate (500/1000 Hz), the app applies the corrections for the mode **you configured**, assuming it matches. If you are unsure of the running mode, attach with a native configuration (no filter corrections) or let the app reinitialize to a known mode (which interrupts the existing session).
 
 ## Impedance Testing
 
