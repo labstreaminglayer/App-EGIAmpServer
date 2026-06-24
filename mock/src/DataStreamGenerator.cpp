@@ -158,7 +158,7 @@ void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
     // Calculate samples per packet based on sample rate
     // We send packets every 5ms, so samples = rate * 0.005
     // 1000 Hz = 5 samples, 2000 Hz = 10 samples, 4000 Hz = 20 samples, 8000 Hz = 40 samples
-    int sampleRate = state.decimatedRate > 0 ? state.decimatedRate : 1000;
+    int sampleRate = state.activeRate();
     int samplesPerPacket = (sampleRate * 5) / 1000;
     if (samplesPerPacket < 1) samplesPerPacket = 1;
 
