@@ -413,8 +413,12 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     // event immediately; EEG and physio see it delayed in decimated mode so the
     // device's EEG-vs-DIN filter delay and physio-leads-EEG-by-33ms skews appear.
     const long long n = static_cast<long long>(state_.packetCounter);
+    // EEG filter delay rounds to the nearest sample (the app applies it as a
+    // continuous timestamp offset, so nearest-sample is the closest the mock's
+    // sample grid can get). The physio lead floors, matching the device's own
+    // whole-sample quantization (32 ms @ 250/500, 33 ms @ 1000).
     const int eegDelaySamples = state_.decimated
-        ? filterDelayMs(sampleRate) * sampleRate / 1000 : 0;
+        ? (filterDelayMs(sampleRate) * sampleRate + 500) / 1000 : 0;
     const int physioLeadSamples = state_.decimated
         ? PHYSIO_LEAD_MS * sampleRate / 1000 : 0;
     int physioDelaySamples = eegDelaySamples - physioLeadSamples;
