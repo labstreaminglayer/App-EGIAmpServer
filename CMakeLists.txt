@@ -27,7 +27,7 @@ option(EGIAMP_BUILD_MOCK "Build the mock EGI Amp device for testing" ON)
 # By default, liblsl is fetched automatically from GitHub.
 # To use a pre-installed liblsl, set LSL_INSTALL_ROOT.
 set(LSL_INSTALL_ROOT "" CACHE PATH "Path to installed liblsl (optional)")
-set(LSL_FETCH_REF "dev" CACHE STRING "liblsl version to fetch from GitHub")
+set(LSL_FETCH_REF "v1.18.0.b2" CACHE STRING "liblsl version to fetch from GitHub")
 
 if(LSL_INSTALL_ROOT)
     # Use pre-installed liblsl
