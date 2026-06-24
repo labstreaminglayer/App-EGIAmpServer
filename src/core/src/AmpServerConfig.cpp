@@ -57,8 +57,8 @@ AmpServerConfig AmpServerConfig::loadFromFile(const std::string& filename) {
         if (auto node = settings.child("fastrecovery")) {
             config.fastRecovery = node.text().as_bool(config.fastRecovery);
         }
-        if (auto node = settings.child("aligntimestamps")) {
-            config.alignTimestamps = node.text().as_bool(config.alignTimestamps);
+        if (auto node = settings.child("physioaligndelayms")) {
+            config.physioAlignDelayMs = node.text().as_int(config.physioAlignDelayMs);
         }
     }
 
@@ -82,7 +82,7 @@ void AmpServerConfig::saveToFile(const std::string& filename) const {
     settings.append_child("impedance").text().set(impedance);
     settings.append_child("nativeformat").text().set(nativeFormat);
     settings.append_child("fastrecovery").text().set(fastRecovery);
-    settings.append_child("aligntimestamps").text().set(alignTimestamps);
+    settings.append_child("physioaligndelayms").text().set(physioAlignDelayMs);
 
     if (!doc.save_file(filename.c_str())) {
         throw ConfigError("Could not write to config file: " + filename);

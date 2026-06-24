@@ -16,7 +16,14 @@ struct AmpServerConfig {
     int sampleRate = 1000;
     bool forceSampleRate = false;  // When true, reinitialize amp if running at different rate
     bool fastRecovery = false;     // When true, use native rate (no FPGA filter) for lower latency
-    bool alignTimestamps = false;  // When true, adjust timestamps to compensate for filter delay
+    // Amount the Physio16 (PNS/PIB) stream is delayed to realign it with the
+    // FPGA-filtered EEG in decimated mode. The PIB path leads the EEG by a fixed
+    // 33 ms physical delay (measured 300 s DIN+EEG+Physio16 sweep, corroborated
+    // across device versions; see scripts/delay_capture_sweep.py +
+    // analyze_delay_sweep.py). The applied delay is floor(33 ms x rate) samples,
+    // which the device quantizes to 8 @ 250 Hz and 16 @ 500 Hz (both 32 ms) and
+    // 33 @ 1000 Hz. Applied only in decimated mode; ignored for native rates.
+    int physioAlignDelayMs = 33;
     bool impedance = false;
     bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
 
@@ -28,9 +35,9 @@ struct AmpServerConfig {
     /// Ensures LSL consumers won't auto-reconnect across incompatible configurations.
     std::string modeSuffix() const {
         const bool native = sampleRate > 1000 || (fastRecovery && sampleRate >= 500);
-        std::string s = native ? "_native" : "_decimated";
-        if (alignTimestamps && !native) s += "_aligned";
-        return s;
+        // Decimated streams are always alignment-corrected, so "_decimated"
+        // already implies aligned — no separate suffix needed.
+        return native ? "_native" : "_decimated";
     }
 
     static AmpServerConfig loadFromFile(const std::string& filename);

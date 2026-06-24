@@ -6,6 +6,7 @@
 #include "AmpServerProtocol.h"
 #include "ImpedanceMeasurement.h"
 #include "LSLStreamer.h"
+#include "PhysioDelayLine.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -96,6 +97,15 @@ private:
     bool attemptRecovery(bool reinitialize);
     void reQueryPhysioStatus();
 
+    // Whether EEG/DIN timestamp alignment and physio delay should be applied for
+    // the current config: true iff the configured mode is decimated (has an FPGA
+    // anti-alias filter). We trust the user's attempted config and assume an
+    // already-running stream matches it at ambiguous rates (500/1000 Hz).
+    bool shouldAlign() const;
+    // (Re)apply timestamp offset and (re)configure the physio delay line for the
+    // current config. Call after each outlet (re)creation.
+    void applyAlignment(int physioChannelCount);
+
     bool cmd_ImpedanceAcquisitionState();
     static bool commandCompleted(const std::string& response);
 
@@ -107,6 +117,7 @@ private:
     LSLStreamer notificationStreamer_;
     AmplifierDetails details_;
     std::unique_ptr<ImpedanceMeasurement> impedanceMeasurement_;
+    PhysioDelayLine physioDelay_;  // Delays Physio16 to realign it with the FPGA-filtered EEG
 
     std::atomic<bool> stopFlag_{false};
     std::atomic<bool> sampleRateChangeDetected_{false};  // Set when ntn_AmpStarted received

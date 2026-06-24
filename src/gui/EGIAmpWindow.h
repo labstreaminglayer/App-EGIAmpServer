@@ -26,7 +26,6 @@ private slots:
     void linkAmpserver();
     void shutdownAmpServer();
     void toggleImpedanceMode(bool enabled);
-    void onSampleRateChanged(int index);
     void displayError(QString description);
     void unlockUI();
     void lockUI();
