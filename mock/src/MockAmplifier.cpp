@@ -518,7 +518,29 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     }
 
     // Monitor channels
-    packet.refMonitor = 0;
+    // Reference (Cz) monitor: in impedance mode, mirror the per-channel
+    // voltage-divider behavior so measureReference() sees a realistic signal.
+    // The reference is "measuring" when its drive is off and its 10K is on
+    // (set by ImpedanceMeasurement::setReferenceDriving(false)).
+    if (impedanceMode) {
+        double refFreq = static_cast<double>(state_.calibrationSignalFreq);
+        double refNoise = (rand() % 1000 - 500) / 500.0 * 2.0;
+        double refAmplitude;
+        if (!state_.referenceDriveSignal && state_.reference10KOhms) {
+            // Measurement mode: fixed simulated reference impedance (~12 kOhms)
+            constexpr double simulatedRefImpedance = 12.0;
+            refAmplitude = IDEAL_SIGNAL_UV * REFERENCE_RESISTOR_KOHMS /
+                           (REFERENCE_RESISTOR_KOHMS + simulatedRefImpedance);
+        } else if (state_.referenceDriveSignal) {
+            refAmplitude = IDEAL_SIGNAL_UV;  // driving the calibration signal
+        } else {
+            refAmplitude = 5.0;  // neither driving nor measuring
+        }
+        double refValue = refAmplitude * std::sin(2.0 * M_PI * refFreq * phase_) + refNoise;
+        packet.refMonitor = static_cast<int32_t>(refValue / scaleFactor);
+    } else {
+        packet.refMonitor = 0;
+    }
     packet.comMonitor = 0;
     packet.driveMonitor = 0;
     packet.diagnosticsChannel = 0;
