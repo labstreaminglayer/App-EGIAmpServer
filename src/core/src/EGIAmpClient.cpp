@@ -886,8 +886,9 @@ void EGIAmpClient::readPacketFormat2() {
                                                                  config_.serverAddress, details_);
                         emitStatus("Impedance stream created.\n");
 
-                        // Configure and start the impedance measurement
+                        // Configure and start the impedance measurement.
                         impedanceMeasurement_->setChannelCount(nChannels);
+                        impedanceMeasurement_->setNetSize(getChannelCountFromNetCode(details_.netCode));
                         impedanceMeasurement_->startContinuousScan(impedanceStreamer_);
                         emitStatus("Impedance scanning started.\n");
                         impedanceModeActive_ = true;
