@@ -572,10 +572,12 @@ bool ImpedanceMeasurement::startContinuousScan(LSLStreamer& impedanceStreamer) {
         return false;
     }
 
-    // Initialize current impedances to max value (not yet measured)
+    // Initialize current impedances to max value (not yet measured).
+    // One extra slot at index channelCount_ holds the reference (Cz) impedance,
+    // matching the trailing Cz channel added by createImpedanceOutlet().
     {
         std::lock_guard<std::mutex> lock(impedancesMutex_);
-        currentImpedances_.assign(channelCount_, MAX_IMPEDANCE_KOHMS);
+        currentImpedances_.assign(channelCount_ + 1, MAX_IMPEDANCE_KOHMS);
     }
 
     stopFlag_ = false;
@@ -668,16 +670,20 @@ void ImpedanceMeasurement::scanThread(LSLStreamer& /* impedanceStreamer */) {
                 std::vector<ChannelImpedance> results = measureTilingSet(ts);
 
                 for (const auto& result : results) {
-                    if (result.valid && result.channel >= 0) {
-                        {
-                            std::lock_guard<std::mutex> lock(impedancesMutex_);
-                            if (result.channel < static_cast<int>(currentImpedances_.size())) {
-                                currentImpedances_[result.channel] = result.impedanceKOhms;
-                            }
+                    if (!result.valid) {
+                        continue;
+                    }
+                    // measureReference() reports channel == -1; store it in the
+                    // trailing reference (Cz) slot at index channelCount_.
+                    int slot = (result.channel >= 0) ? result.channel : channelCount_;
+                    {
+                        std::lock_guard<std::mutex> lock(impedancesMutex_);
+                        if (slot < static_cast<int>(currentImpedances_.size())) {
+                            currentImpedances_[slot] = result.impedanceKOhms;
                         }
-                        if (impedanceCallback_) {
-                            impedanceCallback_(result.channel, result.impedanceKOhms);
-                        }
+                    }
+                    if (impedanceCallback_) {
+                        impedanceCallback_(slot, result.impedanceKOhms);
                     }
                 }
             }
@@ -714,10 +720,19 @@ void ImpedanceMeasurement::scanThread(LSLStreamer& /* impedanceStreamer */) {
                 }
             }
 
-            // Measure reference
+            // Measure reference (Cz) and publish it in the trailing slot
             if (!stopFlag_) {
                 ChannelImpedance refResult = measureReference();
                 if (refResult.valid) {
+                    {
+                        std::lock_guard<std::mutex> lock(impedancesMutex_);
+                        if (channelCount_ < static_cast<int>(currentImpedances_.size())) {
+                            currentImpedances_[channelCount_] = refResult.impedanceKOhms;
+                        }
+                    }
+                    if (impedanceCallback_) {
+                        impedanceCallback_(channelCount_, refResult.impedanceKOhms);
+                    }
                     emitStatus("  Reference: " + std::to_string(refResult.impedanceKOhms) + " kOhms\n");
                 }
             }

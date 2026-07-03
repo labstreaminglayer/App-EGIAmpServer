@@ -232,10 +232,10 @@ When `--native-format` is enabled:
 - **Name**: `EGI NetAmp <amp_id> Impedance`
 - **Type**: `Impedance`
 - **Rate**: 1 Hz (regular rate)
-- **Channels**: Same count and labels as EEG stream
+- **Channels**: One per electrode (E1, E2, ...) **plus a trailing reference channel labeled `Cz`** — i.e. one more channel than the EEG stream carries for a standard net. The `Cz` value is the reference-electrode impedance, measured via the amplifier's dedicated reference monitor once per scan cycle.
 - **Unit**: `kohms` (kilo-ohms)
 - **Behavior**: Publishes current known impedance values every second
-  - Initially, all channels show 1000 kOhms (not yet measured)
+  - Initially, all channels (including `Cz`) show the not-measured sentinel value
   - As each channel is measured, its value updates
   - Values persist until the next measurement of that channel
 
@@ -278,11 +278,10 @@ cmd_TurnChannel10KOhms(N, 0)       - Turn OFF 10K resistor (reset)
 
 ### Limitations and Notes
 
-- **Scan Duration**: A full 256-channel scan takes approximately 5 minutes in single-channel mode
-- **No tiling sets yet**: The current implementation measures one channel at a time. Tiling set support (faster, ~1 minute for 256 channels) is planned for a future release
+- **Tiling-based scanning**: When a tiling layout is available for the detected net (32/64/128/256 HydroCel GSN nets), channels are measured in groups (~5-6 collections per full scan) rather than one at a time — no flag required, it engages automatically. A full 256-channel scan drops from ~5 minutes to roughly a minute. Nets without a tiling layout fall back to single-channel scanning.
 - **Ideal signal estimation**: The "ideal signal" (expected amplitude with 0 impedance) is estimated from the first measurement. For more accurate results, gains calibration should be performed first
 - **Net Station compatibility**: Running impedance mode will interfere with Net Station Acquisition if it's connected to the same amplifier
-- **Channel labels**: Both streams use identical channel labels (E1, E2, ..., En)
+- **Channel labels**: The E-channels share labels with the EEG stream (E1, E2, ..., En); the impedance stream additionally carries a trailing `Cz` reference channel
 
 ### Downstream Processing
 

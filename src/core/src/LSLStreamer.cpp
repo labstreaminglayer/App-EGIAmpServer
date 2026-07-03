@@ -269,12 +269,17 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
     // Close existing outlet if any
     closeOutlet();
 
+    // The stream carries the channelCount electrode channels (E1..En) plus one
+    // trailing reference (Cz) channel, whose value is filled by
+    // ImpedanceMeasurement::measureReference().
+    const int totalChannelCount = channelCount + 1;
+
     // Create stream info with unique source ID for impedance
     // Use 1 Hz rate - values are pushed every second with current known impedances
     std::string sourceId = "EGI_" + hostname +
-                           "_ch" + std::to_string(channelCount) +
+                           "_ch" + std::to_string(totalChannelCount) +
                            "_impedance";
-    lsl::stream_info info(streamName, "Impedance", channelCount,
+    lsl::stream_info info(streamName, "Impedance", totalChannelCount,
                           1.0,  // 1 Hz - current impedance values pushed every second
                           lsl::cf_float32, sourceId);
 
@@ -311,6 +316,25 @@ void LSLStreamer::createImpedanceOutlet(const std::string& streamName, int chann
         const ElectrodePosition* pos = getElectrodePosition(channelCount, i);
         if (pos) {
             lsl::xml_element loc = ch.append_child("location");
+            loc.append_child_value("X", std::to_string(pos->x * 10.0f));
+            loc.append_child_value("Y", std::to_string(pos->y * 10.0f));
+            loc.append_child_value("Z", std::to_string(pos->z * 10.0f));
+        }
+    }
+
+    // Trailing reference (Cz) channel. Its impedance is measured separately via
+    // the amplifier's dedicated reference monitor and lands in the last slot of
+    // the pushed sample (index channelCount).
+    {
+        lsl::xml_element ref = channels.append_child("channel");
+        ref.append_child_value("label", "Cz");
+        ref.append_child_value("type", "Impedance");
+        ref.append_child_value("unit", "kohms");
+
+        // The extended montage array stores Cz at index == base net size.
+        const ElectrodePosition* pos = getElectrodePosition(channelCount, channelCount);
+        if (pos) {
+            lsl::xml_element loc = ref.append_child("location");
             loc.append_child_value("X", std::to_string(pos->x * 10.0f));
             loc.append_child_value("Y", std::to_string(pos->y * 10.0f));
             loc.append_child_value("Z", std::to_string(pos->z * 10.0f));

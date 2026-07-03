@@ -84,7 +84,7 @@ After measurement, return channel to excitation state:
    e. Calculate impedance from amplitude
    f. Reset channel to Excitation State (drive ON, 10K OFF)
 
-3. Optionally measure Reference (Cz) and COM electrodes
+3. Measure the Reference (Cz) electrode each cycle (COM is optional)
 
 4. When done, reset amplifier to Default Acquisition State
 ```
@@ -98,9 +98,13 @@ After measurement, return channel to excitation state:
 | Filter Time          | 1.0 s  | Duration for filter/measurement     |
 | Peak-to-Peak Samples | 51     | Samples for amplitude calculation   |
 
-Total time per channel: ~1.03 seconds
+Total time per collection: ~1.03 seconds
 
-For a 256-channel net, a full scan takes approximately 4-5 minutes.
+Each collection measures a whole tiling set at once, so a full scan costs roughly
+one collection per tiling set (plus one for the reference) rather than one per
+channel. A 256-channel net has 6 tiling sets, so a full scan is ~6 collections
+(about a minute). Nets without a tiling layout fall back to one collection per
+channel (~4-5 minutes for 256 channels).
 
 ## LSL Streaming
 
@@ -111,7 +115,9 @@ Impedance values are streamed via LSL at 1 Hz:
 - **Data Format**: float32 (kΩ)
 - **Channel Labels**: E1, E2, ..., E256, Cz
 
-The stream publishes the **current known values** for all channels every second, even during scanning. Channels not yet measured show 1000 kΩ (maximum/invalid value).
+The last channel, `Cz`, is the **reference electrode** and is always appended after the per-electrode channels (so the impedance stream has one more channel than a standard-net EEG stream). Unlike the E-channels, its impedance is derived from the amplifier's dedicated reference monitor field (`refMonitor`) rather than a regular EEG channel — see `measureReference()`.
+
+The stream publishes the **current known values** for all channels every second, even during scanning. Channels not yet measured show the maximum/invalid sentinel value.
 
 ### Stream Metadata
 
