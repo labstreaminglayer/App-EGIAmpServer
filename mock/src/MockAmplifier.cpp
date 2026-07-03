@@ -11,7 +11,7 @@ int filterDelayMs(int rate) {
     switch (rate) {
         case 250:  return 111;
         case 500:  return 61;
-        case 1000: return 36;
+        case 1000: return 35;
         default:   return 0;
     }
 }

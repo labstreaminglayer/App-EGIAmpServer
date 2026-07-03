@@ -128,7 +128,7 @@ DIN→EEG group delay of the FPGA anti-alias filter (decimated mode only), measu
 
 The application adjusts the LSL timestamp it assigns to each sample so that the timestamp reflects **when the signal actually occurred**, not when the bytes happened to arrive at this client. This makes EEG, Physio16, and DIN events line up with each other and with external event markers. Three corrections are applied; together they are what we call timestamp compensation.
 
-There is **no flag to toggle this** — it follows the configured mode automatically. (The old `--align-timestamps` flag was removed.) The app trusts the mode you configure: a decimated rate means the filter corrections apply; a native rate (`--fast-recovery`, or any rate above 1000 Hz) means they do not. At 500/1000 Hz, where native and decimated are indistinguishable in the data stream, the app assumes the mode you asked for (and, when forcing a rate, reinitializes to guarantee it).
+There is **no flag to toggle this** — it follows the configured mode automatically. The app trusts the mode you configure: a decimated rate means the filter corrections apply; a native rate (`--fast-recovery`, or any rate above 1000 Hz) means they do not. At 500/1000 Hz, where native and decimated are indistinguishable in the data stream, the app assumes the mode you asked for (and, when forcing a rate, reinitializes to guarantee it).
 
 ### 1. System (pipeline) delay — always applied
 

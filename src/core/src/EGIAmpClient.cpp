@@ -1,5 +1,6 @@
 #include "egiamp/EGIAmpClient.h"
 #include "egiamp/Endian.h"
+#include "egiamp/FilterDelays.h"
 
 #include <chrono>
 #include <iostream>
@@ -12,22 +13,18 @@ namespace egiamp {
 
 namespace {
 
-// Anti-alias filter (DIN->EEG) delay in seconds based on sample rate.
-// Measured DIN->EEG group delay from the 300 s DIN+EEG+Physio16 sweep
-// (scripts/delay_capture_sweep.py + analyze_delay_sweep.py), repeatable across
-// iterations and across device versions. These differ from EGI's published
-// Anti-Alias Filter Alignment values (250->112, 500->66) where measurement
-// consistently shows a smaller delay.
-double getFilterDelaySeconds(const int sampleRate, const bool fastRecovery) {
-    if (fastRecovery) {
-        return 0.0;  // Native rate has no FPGA filter delay
-    }
-    switch (sampleRate) {
-        case 250:  return 111.0 / 1000.0;   // 111 msec (measured; EGI claims 112)
-        case 500:  return 61.0 / 1000.0;    // 61 msec  (measured; EGI claims 66)
-        case 1000: return 36.0 / 1000.0;   // 36 msec
-        default:   return 0.0;             // Native rates only (2000+) have no delay
-    }
+// Anti-alias filter (DIN->EEG) delay in seconds for the given amplifier and
+// mode. The per-model, per-rate table lives in resources/sampling_rates.json
+// and is compiled into egiamp/FilterDelays.h at build time (see
+// cmake/generate_filter_delays.cmake). NA400's decimated values are the
+// measured DIN->EEG group delay from the 300 s DIN+EEG+Physio16 sweep
+// (scripts/delay_capture_sweep.py + analyze_delay_sweep.py); they differ from
+// EGI's published Anti-Alias Filter Alignment values (250->112, 500->66) where
+// measurement consistently shows a smaller delay. Fast-recovery and native
+// rates have no FPGA filter and return 0.
+double getFilterDelaySeconds(const AmplifierType type, const int sampleRate,
+                             const bool fastRecovery) {
+    return filterdelays::eegFilterDelayMs(type, sampleRate, fastRecovery) / 1000.0;
 }
 
 } // anonymous namespace
@@ -754,13 +751,16 @@ bool EGIAmpClient::shouldAlign() const {
     // We trust the user's attempted config: at an ambiguous rate (500/1000 Hz,
     // where native and decimated are indistinguishable in the stream), we assume
     // an already-running stream matches what the user configured.
-    return getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery) > 0.0;
+    return getFilterDelaySeconds(details_.amplifierType, config_.sampleRate,
+                                 config_.fastRecovery) > 0.0;
 }
 
 void EGIAmpClient::applyAlignment(const int physioChannelCount) {
     // Timestamp offset realigns the whole EEG+physio block with the unfiltered DIN.
     if (shouldAlign()) {
-        const double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
+        const double delaySeconds = getFilterDelaySeconds(details_.amplifierType,
+                                                          config_.sampleRate,
+                                                          config_.fastRecovery);
         streamer_.setTimestampOffset(delaySeconds);
         if (delaySeconds > 0) {
             emitStatus("Timestamp alignment enabled: " +
