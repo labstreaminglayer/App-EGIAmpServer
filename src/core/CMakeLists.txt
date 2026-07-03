@@ -38,6 +38,23 @@ add_custom_command(
 )
 
 # =========================================================================
+# EEG filter-delay table (generated from sampling_rates.json)
+# =========================================================================
+set(SAMPLING_RATES_JSON "${RESOURCE_DIR}/sampling_rates.json")
+
+add_custom_command(
+    OUTPUT "${GENERATED_DIR}/egiamp/FilterDelays.h"
+    COMMAND ${CMAKE_COMMAND}
+        "-DJSON_FILE=${SAMPLING_RATES_JSON}"
+        "-DOUTPUT_DIR=${GENERATED_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/generate_filter_delays.cmake"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/cmake/generate_filter_delays.cmake"
+        "${SAMPLING_RATES_JSON}"
+    COMMENT "Generating EEG filter-delay table from sampling_rates.json"
+)
+
+# =========================================================================
 # Core library
 # =========================================================================
 add_library(egiamp_core STATIC
@@ -49,6 +66,7 @@ add_library(egiamp_core STATIC
     src/EGIAmpClient.cpp
     src/SensorLayout.cpp
     "${GENERATED_DIR}/EmbeddedResources.cpp"
+    "${GENERATED_DIR}/egiamp/FilterDelays.h"
 )
 
 target_include_directories(egiamp_core PUBLIC

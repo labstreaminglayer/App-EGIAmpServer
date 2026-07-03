@@ -119,16 +119,31 @@ void DataStreamGenerator::stopListening(int64_t ampId) {
 }
 
 void DataStreamGenerator::streamingThread() {
-    // We send packets at ~200 Hz (every 5ms) and adjust samples per packet
-    // based on sample rate to achieve the correct rate
-    const auto packetInterval = std::chrono::milliseconds(5);
+    // Pace to a steady deadline so the effective sample rate is accurate. Each
+    // packet carries `samplesPerPacket` samples (~5 ms worth) and must therefore
+    // span exactly samplesPerPacket/rate seconds. Computing the interval that way
+    // (rather than a fixed 5 ms) keeps non-1000 rates exact too: e.g. 250 Hz ->
+    // 1 sample / 4 ms, 500 Hz -> 2 samples / 4 ms. sleep_until compensates for the
+    // time spent generating/sending, which sleep_for did not.
+    auto nextDeadline = std::chrono::steady_clock::now();
 
     while (running_) {
         if (amplifier_->isStreaming() && listening_) {
             sendDataToClients();
         }
 
-        std::this_thread::sleep_for(packetInterval);
+        const int rate = amplifier_->state().activeRate();
+        int samplesPerPacket = (rate * 5) / 1000;
+        if (samplesPerPacket < 1) samplesPerPacket = 1;
+        const auto interval = std::chrono::nanoseconds(
+            static_cast<int64_t>(1'000'000'000LL * samplesPerPacket / rate));
+
+        nextDeadline += interval;
+        const auto now = std::chrono::steady_clock::now();
+        if (nextDeadline < now) {
+            nextDeadline = now;  // fell behind (e.g. stall) — resync, don't burst
+        }
+        std::this_thread::sleep_until(nextDeadline);
     }
 }
 
@@ -158,7 +173,7 @@ void DataStreamGenerator::generateSyntheticData(std::vector<uint8_t>& buffer) {
     // Calculate samples per packet based on sample rate
     // We send packets every 5ms, so samples = rate * 0.005
     // 1000 Hz = 5 samples, 2000 Hz = 10 samples, 4000 Hz = 20 samples, 8000 Hz = 40 samples
-    int sampleRate = state.decimatedRate > 0 ? state.decimatedRate : 1000;
+    int sampleRate = state.activeRate();
     int samplesPerPacket = (sampleRate * 5) / 1000;
     if (samplesPerPacket < 1) samplesPerPacket = 1;
 

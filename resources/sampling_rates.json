@@ -5,19 +5,19 @@
     "NA300": {
       "available_rates": [125, 250, 500, 1000],
       "source_rate": 1000,
-      "eeg_shift_samples": {
+      "eeg_shift_msec": {
         "125": 72,
         "250": 36,
         "500": 18,
         "1000": 8
       },
-      "pns_shift_samples": {
+      "pns_shift_msec": {
         "125": 0,
         "250": 0,
         "500": 0,
         "1000": 0
       },
-      "pns_diff_samples": {
+      "pns_diff_msec": {
         "125": 0,
         "250": 0,
         "500": 0,
@@ -28,16 +28,17 @@
       "available_rates": [250, 500, 1000],
       "fast_recovery_rates": [1000],
       "source_rate": 1000,
-      "eeg_shift_samples": {
-        "250": 112,
-        "500": 66,
-        "1000": 36,
+      "_eeg_shift_note": "250 and 500 Hz overridden from EGI's published Anti-Alias Filter Alignment values (manufacturer: 250->112, 500->66, 1000->36) to rigorously measured delays, which are consistently smaller. Mirrors getFilterDelaySeconds() in src/core/src/EGIAmpClient.cpp.",
+      "eeg_shift_msec": {
+        "250": 111,
+        "500": 61,
+        "1000": 35,
         "1000_fast_recovery": 0,
         "2000": 0,
         "4000": 0,
         "8000": 0
       },
-      "pns_shift_samples": {
+      "pns_shift_msec": {
         "250": 80,
         "500": 28,
         "1000": 3,
@@ -46,7 +47,7 @@
         "4000": 0,
         "8000": 0
       },
-      "pns_diff_samples": {
+      "pns_diff_msec": {
         "250": 74,
         "500": 30,
         "1000": 0,
@@ -60,7 +61,7 @@
       "available_rates": [250, 500, 1000],
       "fast_recovery_rates": [1000],
       "source_rate": 1000,
-      "eeg_shift_samples": {
+      "eeg_shift_msec": {
         "250": 76,
         "500": 34,
         "1000": 13,
@@ -70,7 +71,7 @@
         "10000": 0,
         "20000": 0
       },
-      "pns_shift_samples": {
+      "pns_shift_msec": {
         "250": 64,
         "500": 24,
         "1000": 3,
@@ -80,7 +81,7 @@
         "10000": 0,
         "20000": 0
       },
-      "pns_diff_samples": {
+      "pns_diff_msec": {
         "250": 24,
         "500": 24,
         "1000": 25,
@@ -93,9 +94,10 @@
     }
   },
   "notes": {
-    "eeg_shift": "Number of samples to shift EEG data for anti-alias filter alignment",
-    "pns_shift": "Number of samples to shift PNS/physio data for filter alignment",
-    "pns_diff": "Differential samples between EEG and PNS channels"
+    "_units": "Shift values are milliseconds. They equal samples at source_rate (1000 Hz), which is how they were originally extracted; the C++ code consumes them as milliseconds.",
+    "eeg_shift_msec": "Milliseconds to shift EEG data for anti-alias filter alignment",
+    "pns_shift_msec": "Milliseconds to shift PNS/physio data for filter alignment",
+    "pns_diff_msec": "Differential milliseconds between EEG and PNS channels"
   },
   "timeouts": {
     "ping_timeout_seconds": 120,

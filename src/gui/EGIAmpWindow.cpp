@@ -31,13 +31,6 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     // Load initial config
     loadConfig(configFile);
 
-    // Sample rate dropdown
-    connect(ui->sampleRateComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &EGIAmpWindow::onSampleRateChanged);
-    // Sync checkbox state with the currently selected rate (connect was not yet
-    // active when populateSampleRateCombo / loadConfig set the index)
-    onSampleRateChanged(ui->sampleRateComboBox->currentIndex());
-
     // Menu connections
     connect(ui->actionQuit, &QAction::triggered, this, &EGIAmpWindow::close);
     connect(ui->actionLoad_Configuration, &QAction::triggered,
@@ -128,7 +121,6 @@ void EGIAmpWindow::loadConfig(const std::string& filename) {
         ui->dataPort->setValue(config.dataPort);
         ui->sampleRateComboBox->setCurrentIndex(
             findSampleRateIndex(config.sampleRate, config.fastRecovery));
-        ui->alignTimestampsCheckBox->setChecked(config.alignTimestamps);
     } catch (const egiamp::ConfigError& e) {
         QMessageBox::information(this, "Error",
             QString("Cannot read config file: %1").arg(e.what()), QMessageBox::Ok);
@@ -156,7 +148,6 @@ egiamp::AmpServerConfig EGIAmpWindow::getConfigFromUI() const {
     QVariantList rateData = ui->sampleRateComboBox->currentData().toList();
     config.sampleRate = rateData[0].toInt();
     config.fastRecovery = rateData[1].toBool();
-    config.alignTimestamps = ui->alignTimestampsCheckBox->isChecked();
 
     return config;
 }
@@ -247,8 +238,6 @@ void EGIAmpWindow::unlockUI() {
     ui->actionShutdown_Amp_Server->setEnabled(true);
     ui->impedanceCheckBox->setEnabled(false);
     ui->impedanceCheckBox->setChecked(false);
-    // Restore align-timestamps state based on current rate selection
-    onSampleRateChanged(ui->sampleRateComboBox->currentIndex());
 }
 
 void EGIAmpWindow::lockUI() {
@@ -257,7 +246,6 @@ void EGIAmpWindow::lockUI() {
     emit fieldsEnabled(false);
     ui->actionShutdown_Amp_Server->setEnabled(false);
     ui->impedanceCheckBox->setEnabled(true);
-    ui->alignTimestampsCheckBox->setEnabled(false);
 }
 
 void EGIAmpWindow::shutdownAmpServer() {
@@ -345,19 +333,6 @@ void EGIAmpWindow::populateSampleRateCombo() {
             QVariantList{e.rate, e.native});
     }
     ui->sampleRateComboBox->setCurrentIndex(3); // "1000 Hz" default
-}
-
-void EGIAmpWindow::onSampleRateChanged(int index) {
-    if (index < 0) return;
-    QVariantList data = ui->sampleRateComboBox->itemData(index).toList();
-    bool isNative = data[1].toBool();
-    if (isNative) {
-        ui->alignTimestampsCheckBox->setChecked(false);
-        ui->alignTimestampsCheckBox->setEnabled(false);
-    } else {
-        ui->alignTimestampsCheckBox->setChecked(true);
-        ui->alignTimestampsCheckBox->setEnabled(true);
-    }
 }
 
 int EGIAmpWindow::findSampleRateIndex(int rate, bool native) const {

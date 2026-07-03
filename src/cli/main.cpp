@@ -32,7 +32,6 @@ void printUsage(const char* programName) {
               << "  --amp-id <id>      Amplifier ID (default: 0)\n"
               << "  --sample-rate <hz> Sample rate (default: 1000)\n"
               << "  --fast-recovery    Use native rate for lower latency (no FPGA anti-alias filter)\n"
-              << "  --align-timestamps Adjust timestamps to compensate for anti-alias filter delay\n"
               << "  --impedance        Enable impedance testing mode (default: disabled)\n"
               << "  --native-format    Transmit raw int32 ADC counts instead of float microvolts\n"
               << "  --shutdown         Shutdown the Amp Server (terminates all connections)\n"
@@ -67,9 +66,6 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--fast-recovery") {
             config.fastRecovery = true;
             config.forceSampleRate = true;  // Fast recovery implies forcing the rate
-        } else if (arg == "--align-timestamps") {
-            config.alignTimestamps = true;
-            config.forceSampleRate = true;  // Must reinitialize to ensure known filter mode
         } else if (arg == "--impedance") {
             config.impedance = true;
         } else if (arg == "--native-format") {

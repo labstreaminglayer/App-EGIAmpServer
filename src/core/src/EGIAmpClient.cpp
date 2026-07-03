@@ -1,5 +1,6 @@
 #include "egiamp/EGIAmpClient.h"
 #include "egiamp/Endian.h"
+#include "egiamp/FilterDelays.h"
 
 #include <chrono>
 #include <iostream>
@@ -12,18 +13,18 @@ namespace egiamp {
 
 namespace {
 
-// Calculate anti-alias filter delay in seconds based on sample rate
-// These values are from EGI's Anti-Alias Filter Alignment app
-double getFilterDelaySeconds(const int sampleRate, const bool fastRecovery) {
-    if (fastRecovery) {
-        return 0.0;  // Native rate has no FPGA filter delay
-    }
-    switch (sampleRate) {
-        case 250:  return 112.0 / 1000.0;   // 112 msec
-        case 500:  return 66.0 / 1000.0;    // 66 msec
-        case 1000: return 36.0 / 1000.0;   // 36 msec
-        default:   return 0.0;             // Native rates only (2000+) have no delay
-    }
+// Anti-alias filter (DIN->EEG) delay in seconds for the given amplifier and
+// mode. The per-model, per-rate table lives in resources/sampling_rates.json
+// and is compiled into egiamp/FilterDelays.h at build time (see
+// cmake/generate_filter_delays.cmake). NA400's decimated values are the
+// measured DIN->EEG group delay from the 300 s DIN+EEG+Physio16 sweep
+// (scripts/delay_capture_sweep.py + analyze_delay_sweep.py); they differ from
+// EGI's published Anti-Alias Filter Alignment values (250->112, 500->66) where
+// measurement consistently shows a smaller delay. Fast-recovery and native
+// rates have no FPGA filter and return 0.
+double getFilterDelaySeconds(const AmplifierType type, const int sampleRate,
+                             const bool fastRecovery) {
+    return filterdelays::eegFilterDelayMs(type, sampleRate, fastRecovery) / 1000.0;
 }
 
 } // anonymous namespace
@@ -405,12 +406,13 @@ bool EGIAmpClient::startStreaming() {
             if (detectedRate != config_.sampleRate) {
                 // Rate mismatch - must reinitialize
                 needsReinit = true;
-            } else if (config_.alignTimestamps && !config_.fastRecovery &&
+            } else if (!config_.fastRecovery &&
                        (config_.sampleRate == 500 || config_.sampleRate == 1000)) {
-                // Rate matches but we need known filter mode for timestamp alignment
-                // 500 and 1000 Hz can be either native or decimated, so reinit to ensure decimated
+                // Rate matches, but 500/1000 Hz can be either native or decimated
+                // and the user configured decimated. Reinit to guarantee decimated
+                // mode so the alignment we apply is correct.
                 needsReinit = true;
-                emitStatus("Reinitializing to ensure decimated mode for timestamp alignment.\n");
+                emitStatus("Reinitializing to ensure decimated mode for alignment.\n");
             }
         }
 
@@ -741,6 +743,56 @@ void EGIAmpClient::processNotifications() {
     }
 }
 
+bool EGIAmpClient::shouldAlign() const {
+    // Align whenever the *configured* mode is decimated — the FPGA anti-alias
+    // filter is what introduces the EEG-vs-DIN and EEG-vs-physio skew we correct.
+    // Native / fast-recovery rates have no filter, so no alignment.
+    //
+    // We trust the user's attempted config: at an ambiguous rate (500/1000 Hz,
+    // where native and decimated are indistinguishable in the stream), we assume
+    // an already-running stream matches what the user configured.
+    return getFilterDelaySeconds(details_.amplifierType, config_.sampleRate,
+                                 config_.fastRecovery) > 0.0;
+}
+
+void EGIAmpClient::applyAlignment(const int physioChannelCount) {
+    // Timestamp offset realigns the whole EEG+physio block with the unfiltered DIN.
+    if (shouldAlign()) {
+        const double delaySeconds = getFilterDelaySeconds(details_.amplifierType,
+                                                          config_.sampleRate,
+                                                          config_.fastRecovery);
+        streamer_.setTimestampOffset(delaySeconds);
+        if (delaySeconds > 0) {
+            emitStatus("Timestamp alignment enabled: " +
+                       std::to_string(static_cast<int>(delaySeconds * 1000)) + " ms offset.\n");
+        }
+        if (ampRestarted_ && !weInitializedAmp_) {
+            emitStatus("Warning: After passive recovery, timestamp alignment may be inaccurate "
+                       "(unknown if external app used native or decimated mode).\n");
+        }
+    } else {
+        streamer_.setTimestampOffset(0.0);
+    }
+
+    // Physio delay line realigns the PIB/physio channels with the FPGA-filtered
+    // EEG *within* the stream (the PIB path leads the EEG by physioAlignDelayMs).
+    // The skew is a fixed ~33 ms physical delay that the device quantizes to whole
+    // samples, so the *observed* skew is floor(33 ms x rate): 8 samples @ 250 Hz
+    // and 16 @ 500 Hz (both = 32 ms), 33 @ 1000 Hz. We reproduce that quantization
+    // with integer (floor) division — round() would over-delay 500 Hz by a sample.
+    int physioDelaySamples = 0;
+    if (shouldAlign() && physioChannelCount > 0 && config_.physioAlignDelayMs > 0) {
+        physioDelaySamples = config_.physioAlignDelayMs * config_.sampleRate / 1000;
+    }
+    physioDelay_.configure(physioChannelCount, physioDelaySamples);
+    if (physioDelaySamples > 0) {
+        const int appliedMs = physioDelaySamples * 1000 / config_.sampleRate;
+        emitStatus("Physio alignment: delaying PNS by " +
+                   std::to_string(physioDelaySamples) + " samples (~" +
+                   std::to_string(appliedMs) + " ms).\n");
+    }
+}
+
 void EGIAmpClient::readPacketFormat2() {
     auto& stream = connection_.dataStream();
     uint64_t lastPacketCounter = 0;
@@ -766,8 +818,12 @@ void EGIAmpClient::readPacketFormat2() {
             stream.read(reinterpret_cast<char*>(&header), sizeof(header));
 
             // Capture arrival time before any per-sample processing so that
-            // all samples in this batch share the same base timestamp.
-            double batchTimestamp = lsl::local_clock();
+            // all samples in this batch share the same base timestamp. Subtract
+            // the system/pipeline delay (firmware + network + read path) so the
+            // timestamp reflects digitization time, not arrival. This flows to
+            // both the EEG/physio chunk and the DIN events (derived below), and
+            // is on top of the decimated-only filter offset applied in pushChunk.
+            double batchTimestamp = lsl::local_clock() - config_.systemDelayMs / 1000.0;
 
             header.ampID = big_to_native(header.ampID);
             header.length = big_to_native(header.length);
@@ -820,19 +876,8 @@ void EGIAmpClient::readPacketFormat2() {
                     // Create separate DIN event stream (irregular rate, no filter delay)
                     dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
 
-                    // Apply timestamp offset for filter delay compensation if enabled
-                    if (config_.alignTimestamps) {
-                        double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
-                        streamer_.setTimestampOffset(delaySeconds);
-                        if (delaySeconds > 0) {
-                            emitStatus("Timestamp alignment enabled: " +
-                                       std::to_string(static_cast<int>(delaySeconds * 1000)) + " ms offset.\n");
-                        }
-                        if (ampRestarted_ && !weInitializedAmp_) {
-                            emitStatus("Warning: After passive recovery, timestamp alignment may be inaccurate "
-                                       "(unknown if external app used native or decimated mode).\n");
-                        }
-                    }
+                    // Apply timestamp offset + physio delay for filter compensation
+                    applyAlignment(physioChannelCount);
 
                     // Create LSL outlet for impedance if enabled and start scanning
                     if (config_.impedance && impedanceMeasurement_) {
@@ -917,11 +962,8 @@ void EGIAmpClient::readPacketFormat2() {
                                                        config_.nativeFormat, config_.modeSuffix());
                                 dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
 
-                                // Apply timestamp offset for filter delay compensation if enabled
-                                if (config_.alignTimestamps) {
-                                    double delaySeconds = getFilterDelaySeconds(config_.sampleRate, config_.fastRecovery);
-                                    streamer_.setTimestampOffset(delaySeconds);
-                                }
+                                // Apply timestamp offset + physio delay for the new rate
+                                applyAlignment(physioChCount);
 
                                 // Recreate impedance outlet and restart scanning if active
                                 if (impedanceModeActive_ && impedanceMeasurement_) {
@@ -959,6 +1001,21 @@ void EGIAmpClient::readPacketFormat2() {
                 int physioChannels = (physioConnectionStatus_ == 3) ? 32 :
                                      (physioConnectionStatus_ > 0) ? 16 : 0;
 
+                // Gather the connected physio (PIB) channels as raw int32 ADC
+                // counts in outlet order [PIB1 0-15][PIB2 0-15], then run them
+                // through the delay line so the physio is realigned with the
+                // FPGA-filtered EEG (zeros during the warm-up window). Done on raw
+                // counts so the same delay serves both the native and float paths.
+                int32_t physioRaw[32];
+                int physioN = 0;
+                if (physioConnectionStatus_ & 0x01) {
+                    for (int ch = 0; ch < 16; ch++) physioRaw[physioN++] = packet.pib1_Data[ch];
+                }
+                if (physioConnectionStatus_ & 0x02) {
+                    for (int ch = 0; ch < 16; ch++) physioRaw[physioN++] = packet.pib2_Data[ch];
+                }
+                physioDelay_.process(physioRaw, physioN);
+
                 if (config_.nativeFormat) {
                     // Native format: push raw int32 ADC counts
                     std::vector<int32_t> rawSamples;
@@ -969,18 +1026,8 @@ void EGIAmpClient::readPacketFormat2() {
                     }
                     rawSamples.push_back(0);  // Cz reference channel
 
-                    // Add PIB1 channels (if port 1 connected: status 1 or 3)
-                    if (physioConnectionStatus_ & 0x01) {
-                        for (int ch = 0; ch < 16; ch++) {
-                            rawSamples.push_back(packet.pib1_Data[ch]);
-                        }
-                    }
-
-                    // Add PIB2 channels (if port 2 connected: status 2 or 3)
-                    if (physioConnectionStatus_ & 0x02) {
-                        for (int ch = 0; ch < 16; ch++) {
-                            rawSamples.push_back(packet.pib2_Data[ch]);
-                        }
+                    for (int i = 0; i < physioN; i++) {
+                        rawSamples.push_back(physioRaw[i]);
                     }
 
                     chunkInt32.push_back(std::move(rawSamples));
@@ -995,30 +1042,12 @@ void EGIAmpClient::readPacketFormat2() {
                     }
                     eegSamples.push_back(0.0f);  // Cz reference channel
 
-                    // Add PIB1 channels (if port 1 connected: status 1 or 3)
-                    // Channels 1-8 use negative scaling, 9-16 use positive scaling
-                    if (physioConnectionStatus_ & 0x01) {
-                        for (int ch = 0; ch < 8; ch++) {
-                            eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
-                                                 PHYSIO_SCALING_1_8);
-                        }
-                        for (int ch = 8; ch < 16; ch++) {
-                            eegSamples.push_back(static_cast<float>(packet.pib1_Data[ch]) *
-                                                 PHYSIO_SCALING_9_16);
-                        }
-                    }
-
-                    // Add PIB2 channels (if port 2 connected: status 2 or 3)
-                    // Channels 1-8 use negative scaling, 9-16 use positive scaling
-                    if (physioConnectionStatus_ & 0x02) {
-                        for (int ch = 0; ch < 8; ch++) {
-                            eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
-                                                 PHYSIO_SCALING_1_8);
-                        }
-                        for (int ch = 8; ch < 16; ch++) {
-                            eegSamples.push_back(static_cast<float>(packet.pib2_Data[ch]) *
-                                                 PHYSIO_SCALING_9_16);
-                        }
+                    // PIB channels 1-8 use negative scaling, 9-16 use positive
+                    // scaling; the pattern repeats for each 16-channel port.
+                    for (int i = 0; i < physioN; i++) {
+                        const float scale = (i % 16 < 8) ? PHYSIO_SCALING_1_8
+                                                         : PHYSIO_SCALING_9_16;
+                        eegSamples.push_back(static_cast<float>(physioRaw[i]) * scale);
                     }
 
                     chunkFloat.push_back(std::move(eegSamples));
@@ -1088,6 +1117,10 @@ void EGIAmpClient::readPacketFormat2() {
         lastPacketCounterWithTimeStamp_ = 0;
         ampRestarted_ = false;
         nChannels = details_.channelCount;
+        // Drop buffered pre-loss physio so it isn't emitted into post-recovery EEG.
+        // If the outlet is recreated (settings changed), applyAlignment() will
+        // reconfigure the line; otherwise the reused outlet keeps its sizing.
+        physioDelay_.reset();
 
         // attemptRecovery() reconnected the data stream and sent cmd_ListenToAmp.
         // If settings changed, the outlet was closed and !streamer_.hasOutlet()

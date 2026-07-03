@@ -4,6 +4,40 @@
 
 namespace mock {
 
+namespace {
+// DIN->EEG anti-alias filter group delay (ms) in decimated mode. Mirrors
+// getFilterDelaySeconds() in the app (measured values). Native mode = no filter.
+int filterDelayMs(int rate) {
+    switch (rate) {
+        case 250:  return 111;
+        case 500:  return 61;
+        case 1000: return 35;
+        default:   return 0;
+    }
+}
+
+// The PIB/physio path leads the FPGA-filtered EEG by this fixed physical delay in
+// decimated mode (see notebooks/delay_inspection.ipynb). Quantized to whole
+// samples at the active rate, matching the device (and the app's PhysioDelayLine).
+constexpr int PHYSIO_LEAD_MS = 33;
+
+// Common reference event injected into DIN pin-1 / EEG ch1 / physio ch1 (emulates
+// the test jig). One pulse per second, 250 ms wide.
+constexpr double REF_PERIOD_S = 1.0;
+constexpr double REF_PULSE_S = 0.25;
+constexpr double REF_EEG_PULSE_UV = 500.0;     // EEG ch1 deflection during the pulse
+constexpr double REF_PHYSIO_PULSE_UV = 1000.0; // physio ch1 deflection during the pulse
+
+// Is the reference pulse active at sample index k (handles negative k from delays)?
+bool refActiveAtSample(long long k, int sampleRate) {
+    const long long period = static_cast<long long>(REF_PERIOD_S * sampleRate);
+    const long long width = static_cast<long long>(REF_PULSE_S * sampleRate);
+    if (period <= 0) return false;
+    const long long m = ((k % period) + period) % period;
+    return m < width;
+}
+}  // namespace
+
 MockAmplifier::MockAmplifier(int64_t id) {
     state_.ampId = id;
     state_.startTime = getCurrentTimeMicros();
@@ -92,6 +126,7 @@ bool MockAmplifier::setNativeRate(int rate) {
         }
     }
     state_.nativeRate = rate;
+    state_.decimated = false;  // native mode: no FPGA anti-alias filter, no skew
     return true;
 }
 
@@ -100,6 +135,7 @@ bool MockAmplifier::setDecimatedRate(int rate) {
     // Real amplifier accepts any rate value without validation
     // Valid rates: 250, 500, 1000
     state_.decimatedRate = rate;
+    state_.decimated = true;  // decimated mode: FPGA filter introduces EEG/physio skew
     return true;
 }
 
@@ -369,16 +405,31 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::memset(&packet, 0, sizeof(packet));
 
-    // Digital inputs - cycle 0x0000 to 0xFFFF at 1kHz base rate
-    // At higher sample rates, duplicate the values:
-    // 1kHz: each value once, 2kHz: twice, 4kHz: 4x, 8kHz: 8x
-    int sampleRate = state_.decimatedRate > 0 ? state_.decimatedRate : 1000;
-    int duplicateFactor = sampleRate / 1000;
-    if (duplicateFactor < 1) duplicateFactor = 1;
+    // Active streaming rate (decimated or native mode).
+    int sampleRate = state_.activeRate();
 
-    // Calculate which 1kHz "tick" we're on
-    uint32_t din1kHzTick = static_cast<uint32_t>(state_.packetCounter / duplicateFactor);
-    packet.digitalInputs = static_cast<uint16_t>(din1kHzTick & 0xFFFF);
+    // Common reference event (emulates the test jig pulsing DIN pin-1 while
+    // injecting the same pulse into EEG ch1 and physio ch1). DIN reflects the
+    // event immediately; EEG and physio see it delayed in decimated mode so the
+    // device's EEG-vs-DIN filter delay and physio-leads-EEG-by-33ms skews appear.
+    const long long n = static_cast<long long>(state_.packetCounter);
+    // EEG filter delay rounds to the nearest sample (the app applies it as a
+    // continuous timestamp offset, so nearest-sample is the closest the mock's
+    // sample grid can get). The physio lead floors, matching the device's own
+    // whole-sample quantization (32 ms @ 250/500, 33 ms @ 1000).
+    const int eegDelaySamples = state_.decimated
+        ? (filterDelayMs(sampleRate) * sampleRate + 500) / 1000 : 0;
+    const int physioLeadSamples = state_.decimated
+        ? PHYSIO_LEAD_MS * sampleRate / 1000 : 0;
+    int physioDelaySamples = eegDelaySamples - physioLeadSamples;
+    if (physioDelaySamples < 0) physioDelaySamples = 0;
+
+    // DIN is active-low: 0xFFFF idle, pin-1 (bit 0) cleared while the event is on.
+    uint16_t din = 0xFFFF;
+    if (refActiveAtSample(n, sampleRate)) {
+        din &= static_cast<uint16_t>(~0x0001);
+    }
+    packet.digitalInputs = din;
 
     // TR byte (255 = no GTEN activity)
     packet.tr = state_.gtenTrainRunning ? 251 : 255;
@@ -455,6 +506,12 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
         packet.eegData[ch] = static_cast<int32_t>(value / scaleFactor);
     }
 
+    // Inject the (filter-delayed) reference pulse into EEG ch1 so it lags the DIN
+    // pin-1 edge by the anti-alias filter delay (skip in impedance mode).
+    if (!impedanceMode && refActiveAtSample(n - eegDelaySamples, sampleRate)) {
+        packet.eegData[0] += static_cast<int32_t>(REF_EEG_PULSE_UV / scaleFactor);
+    }
+
     // Aux data
     for (int i = 0; i < 3; ++i) {
         packet.auxData[i] = 0;
@@ -492,6 +549,14 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
         } else {
             packet.pib2_Data[i] = 0;
         }
+    }
+
+    // Inject the reference pulse into physio ch1 (port 1). It uses a smaller delay
+    // than EEG (leads it by PHYSIO_LEAD_MS), so the same event lands at an earlier
+    // sample index than in EEG — exactly the skew PhysioDelayLine corrects.
+    if (!impedanceMode && (state_.physioConnectionStatus & 0x01) &&
+        refActiveAtSample(n - physioDelaySamples, sampleRate)) {
+        packet.pib1_Data[0] += static_cast<int32_t>(REF_PHYSIO_PULSE_UV / PHYSIO_SCALE_1_8);
     }
 
     ++state_.packetCounter;
