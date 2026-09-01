@@ -42,8 +42,9 @@ struct AmpServerConfig {
 
     /// Suffix for LSL source ID to distinguish native/decimated mode and timestamp alignment.
     /// Ensures LSL consumers won't auto-reconnect across incompatible configurations.
-    std::string modeSuffix() const {
-        const bool native = sampleRate > 1000 || (fastRecovery && sampleRate >= 500);
+    /// The caller decides `native` via usesNativeRate(), which needs the amp model
+    /// (rate/mode capabilities differ between NA400 and NA500).
+    std::string modeSuffix(bool native) const {
         // Decimated streams are always alignment-corrected, so "_decimated"
         // already implies aligned — no separate suffix needed.
         return native ? "_native" : "_decimated";

@@ -7,8 +7,15 @@ namespace egiamp {
 std::string AmpServerConfig::streamName() const {
     if (serverAddress == "localhost" || serverAddress.compare(0, 4, "127.") == 0)
         return "EGINetAmp_mock";
-    if (serverAddress.size() >= 3 && serverAddress.compare(serverAddress.size() - 3, 3, ".52") == 0)
-        return "EGINetAmp_52";
+    // Use the last octet of the address so amps at non-default addresses
+    // (e.g. .62) get distinct stream names. .51/.52 keep their historic names.
+    const auto lastDot = serverAddress.rfind('.');
+    if (lastDot != std::string::npos && lastDot + 1 < serverAddress.size()) {
+        const std::string octet = serverAddress.substr(lastDot + 1);
+        if (!octet.empty() && octet.find_first_not_of("0123456789") == std::string::npos) {
+            return "EGINetAmp_" + octet;
+        }
+    }
     return "EGINetAmp_51";
 }
 

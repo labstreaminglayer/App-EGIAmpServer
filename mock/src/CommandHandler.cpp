@@ -378,8 +378,17 @@ std::string CommandHandler::cmdGetAmpDetails(int64_t ampId, int16_t channel, con
         << "(amp_type " << amplifierTypeName(state.amplifierType) << ") "
         << "(legacy_board " << (state.legacyBoard ? "true" : "false") << ") "
         << "(packet_format " << static_cast<int>(state.packetFormat) << ") "
-        << "(system_version " << state.firmwareVersion << ") "
-        << "(number_of_channels " << state.channelCount << "))";
+        << "(system_version " << state.firmwareVersion << ") ";
+    if (state.amplifierType == AmplifierType::NA500) {
+        // Extra tokens the real NA500 (fw 0.4.9) reports
+        oss << "(fpga_version 0.6.1.f0) "
+            << "(pcb_version 4.1.0.0) ";
+    }
+    oss << "(number_of_channels " << state.channelCount << ")";
+    if (state.amplifierType == AmplifierType::NA500) {
+        oss << " (feature_flags 1)";
+    }
+    oss << ")";
     return responseWithData(oss.str());
 }
 

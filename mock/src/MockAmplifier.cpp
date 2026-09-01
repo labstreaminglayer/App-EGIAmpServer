@@ -117,8 +117,15 @@ bool MockAmplifier::setNativeRate(int rate) {
     // Real amplifier validates native rate
     // NA400: 500, 1000, 2000, 4000, 8000
     // NA410: 20000 only
+    // NA500: 250, 500, 1000, 2000, 4000, 8000, 16000 (verified on hardware;
+    // its AmpServer answers "complete" regardless, but only these stream)
     if (state_.amplifierType == AmplifierType::NA410) {
         if (rate != 20000) return false;
+    } else if (state_.amplifierType == AmplifierType::NA500) {
+        if (rate != 250 && rate != 500 && rate != 1000 && rate != 2000 &&
+            rate != 4000 && rate != 8000 && rate != 16000) {
+            return false;
+        }
     } else {
         if (rate != 500 && rate != 1000 && rate != 2000 &&
             rate != 4000 && rate != 8000) {
@@ -133,7 +140,7 @@ bool MockAmplifier::setNativeRate(int rate) {
 bool MockAmplifier::setDecimatedRate(int rate) {
     std::lock_guard<std::mutex> lock(mutex_);
     // Real amplifier accepts any rate value without validation
-    // Valid rates: 250, 500, 1000
+    // Valid rates: 250, 500, 1000 (NA400); NA500 additionally supports 2000
     state_.decimatedRate = rate;
     state_.decimated = true;  // decimated mode: FPGA filter introduces EEG/physio skew
     return true;
