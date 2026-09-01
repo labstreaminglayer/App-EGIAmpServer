@@ -17,7 +17,7 @@
     "NA300": { "id": 0, "name": "Net Amps 300", "scaling_factor": 0.0244140625 },
     "NA400": { "id": 1, "name": "Net Amps 400", "scaling_factor": 0.000155220429 },
     "NA410": { "id": 2, "name": "Net Amps 410", "scaling_factor": 0.00009636188 },
-    "NA500": { "id": 3, "name": "Net Amps 500", "scaling_factor": 1.0 },
+    "NA500": { "id": 3, "name": "Net Amps 500", "scaling_factor": 0.04470348358154297 },
     "GTEN200": { "id": 1, "name": "NA GTEN 200", "scaling_factor": 0.000155220429 }
   },
   "net_codes": {

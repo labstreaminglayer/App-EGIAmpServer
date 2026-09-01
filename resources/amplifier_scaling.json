@@ -14,6 +14,10 @@
       "microvolt_scale": 0.00009636188,
       "description": "Net Amps 410 series"
     },
+    "NA500": {
+      "microvolt_scale": 0.04470348358154297,
+      "description": "Net Amps 500 series — 0.75 V total input range / 2^24 codes, in µV. Extracted 2026-08-31 from Net Station 6.0.0.60960 libEgiDataSource.dll PhysicalAmp::NA500ScaleFactor() (computes rangeVolts 0.75 / 2^24 * 1e6; a Software\\Magstim\\AmpScaleFactor registry value can override it in Net Station)."
+    },
     "TI": {
       "microvolt_scale": 0.02384185791016,
       "description": "TI-based amplifier"

@@ -2,6 +2,7 @@
 #define EGIAMP_AMPSERVERPROTOCOL_H
 
 #include <cstdint>
+#include <initializer_list>
 
 namespace egiamp {
 
@@ -136,8 +137,63 @@ inline float getScalingFactor(AmplifierType type) {
             return 0.00015522042f;
         case AmplifierType::NA410:
             return 0.00009636188f;
+        case AmplifierType::NA500:
+            // 0.75 V total input range over 2^24 codes (24-bit), in microvolts.
+            // Extracted from Net Station 6.0.0.60960's
+            // libEgiDataSource.dll PhysicalAmp::NA500ScaleFactor(), which
+            // computes exactly rangeVolts(0.75) / 2^24 * 1e6.
+            return 750000.0f / 16777216.0f;  // 0.044703484 uV per count
         default:
             return 1.0f;
+    }
+}
+
+// Rate/mode capabilities per model, verified against hardware where possible.
+// NA400 (measured): decimated 250/500/1000; native 500/1000/2000/4000/8000.
+// NA500 (measured, fw 0.4.9): decimated 250/500/1000/2000; native
+// 250/500/1000/2000/4000/8000/16000. Unlike the NA400, the NA500 never sends
+// duplicate packets at sub-1000 Hz decimated rates.
+inline int maxDecimatedRate(AmplifierType type) {
+    return type == AmplifierType::NA500 ? 2000 : 1000;
+}
+
+inline int minNativeRate(AmplifierType type) {
+    return type == AmplifierType::NA500 ? 250 : 500;
+}
+
+// Whether the given configuration runs the amp in native mode (no FPGA
+// anti-alias filter) as opposed to decimated mode. Rates above the model's
+// decimated maximum are necessarily native; otherwise fastRecovery selects
+// native where the model supports it.
+inline bool usesNativeRate(AmplifierType type, int sampleRate, bool fastRecovery) {
+    return sampleRate > maxDecimatedRate(type) ||
+           (fastRecovery && sampleRate >= minNativeRate(type));
+}
+
+// Whether the model supports the (rate, fastRecovery) combination, in the
+// mode usesNativeRate() would select for it. Unknown models are permissive.
+inline bool supportsSampleRate(AmplifierType type, int sampleRate, bool fastRecovery) {
+    auto contains = [sampleRate](std::initializer_list<int> rates) {
+        for (int r : rates) if (r == sampleRate) return true;
+        return false;
+    };
+    const bool native = usesNativeRate(type, sampleRate, fastRecovery);
+    switch (type) {
+        case AmplifierType::NA300:
+            // Decimated only; no native mode exists.
+            return !native && contains({125, 250, 500, 1000});
+        case AmplifierType::NA400:
+            return native ? contains({500, 1000, 2000, 4000, 8000})
+                          : contains({250, 500, 1000});
+        case AmplifierType::NA410:
+            return native ? contains({20000})
+                          : contains({250, 500, 1000});
+        case AmplifierType::NA500:
+            // Verified on hardware (fw 0.4.9)
+            return native ? contains({250, 500, 1000, 2000, 4000, 8000, 16000})
+                          : contains({250, 500, 1000, 2000});
+        default:
+            return true;
     }
 }
 

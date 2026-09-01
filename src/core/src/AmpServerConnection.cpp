@@ -1,5 +1,7 @@
 #include "egiamp/AmpServerConnection.h"
 
+#include <stdexcept>
+
 namespace egiamp {
 
 AmpServerConnection::AmpServerConnection() = default;
@@ -66,16 +68,56 @@ bool AmpServerConnection::isConnected() const {
 std::string AmpServerConnection::sendCommand(const std::string& command, int ampId,
                                              int channel, const std::string& value) {
     char response[4096];
-    commandStream_ << "(sendCommand " << command << ' ' << ampId << ' '
-                   << channel << ' ' << value << ")\n" << std::flush;
-    commandStream_.getline(response, sizeof(response));
+    // Build the whole command first and write it in a single insertion: the
+    // NA500's AmpServer parses each TCP segment as a complete message, so a
+    // command split across segments (which multiple << insertions can cause)
+    // desyncs its request/response handling.
+    const std::string message = "(sendCommand " + command + ' ' + std::to_string(ampId) +
+                                ' ' + std::to_string(channel) + ' ' + value + ")\n";
+    // Bound the response wait: a half-dead AmpServer (observed on the NA500
+    // after firmware crashes) accepts connections but never responds, and an
+    // unbounded getline would block the caller forever.
+    try {
+        commandStream_.expires_after(std::chrono::seconds(10));
+        commandStream_ << message << std::flush;
+        commandStream_.getline(response, sizeof(response));
+        commandStream_.expires_after(std::chrono::hours(8760));
+    } catch (...) {
+        commandStream_.clear();
+        commandStream_.expires_after(std::chrono::hours(8760));
+        throw std::runtime_error("No response from AmpServer for " + command +
+                                 " within 10 s (server unresponsive?)");
+    }
+
+    // Resynchronize: the NA500's AmpServer occasionally delivers a stale line
+    // (e.g. left over from a previous client session) ahead of the actual
+    // response, which would desync every subsequent request/response pair.
+    // Skip lines that are not command responses, bounded so a misbehaving
+    // server cannot stall us for long.
+    for (int skipped = 0;
+         skipped < 5 && std::string(response).find("sendCommand_return") == std::string::npos;
+         ++skipped) {
+        try {
+            commandStream_.expires_after(std::chrono::seconds(2));
+            commandStream_.getline(response, sizeof(response));
+            commandStream_.expires_after(std::chrono::hours(8760));
+        } catch (...) {
+            // Timed out waiting for a proper response line — give up on the
+            // resync and return what we have; callers treat it as a soft error.
+            commandStream_.clear();
+            commandStream_.expires_after(std::chrono::hours(8760));
+            break;
+        }
+    }
     return std::string(response);
 }
 
 void AmpServerConnection::sendDatastreamCommand(const std::string& command, int ampId,
                                                 int channel, const std::string& value) {
-    dataStream_ << "(sendCommand " << command << ' ' << ampId << ' '
-                << channel << ' ' << value << ")\n" << std::flush;
+    // Single insertion for the same fragmentation reason as sendCommand().
+    const std::string message = "(sendCommand " + command + ' ' + std::to_string(ampId) +
+                                ' ' + std::to_string(channel) + ' ' + value + ")\n";
+    dataStream_ << message << std::flush;
 }
 
 } // namespace egiamp
