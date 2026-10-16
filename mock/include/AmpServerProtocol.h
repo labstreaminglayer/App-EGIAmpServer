@@ -145,6 +145,9 @@ inline float getScalingFactor(AmplifierType type) {
             return 0.000155220429f;
         case AmplifierType::NA410:
             return 0.00009636188f;
+        case AmplifierType::NA500:
+            // 0.75 V range / 2^24 codes in uV (Net Station 6 NA500ScaleFactor)
+            return 750000.0f / 16777216.0f;
         default:
             return 1.0f;
     }

@@ -59,6 +59,10 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
             Qt::QueuedConnection);
     connect(this, &EGIAmpWindow::disableUI, this, &EGIAmpWindow::lockUI,
             Qt::QueuedConnection);
+    connect(this, &EGIAmpWindow::linkFinished, this, &EGIAmpWindow::onLinkFinished,
+            Qt::QueuedConnection);
+    connect(this, &EGIAmpWindow::ampDetectedRunning, this, &EGIAmpWindow::onAmpDetectedRunning,
+            Qt::QueuedConnection);
 
     // Field enable/disable connections
     connect(this, &EGIAmpWindow::fieldsEnabled, ui->sampleRateComboBox, &QComboBox::setEnabled);
@@ -87,6 +91,7 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
 }
 
 EGIAmpWindow::~EGIAmpWindow() {
+    joinLinkThread();
     if (client_->isStreaming()) {
         client_->stopStreaming();
     }
@@ -160,9 +165,17 @@ void EGIAmpWindow::closeEvent(QCloseEvent* ev) {
     }
 }
 
+void EGIAmpWindow::joinLinkThread() {
+    if (linkThread_ && linkThread_->joinable()) {
+        linkThread_->join();
+    }
+    linkThread_.reset();
+}
+
 void EGIAmpWindow::linkAmpserver() {
     if (client_->isStreaming()) {
         // Unlink
+        joinLinkThread();
         client_->stopStreaming();
         client_->disconnect();
         ui->statusBar->clearMessage();
@@ -177,51 +190,75 @@ void EGIAmpWindow::linkAmpserver() {
         auto config = getConfigFromUI();
         client_->setConfig(config);
 
-        emit appendStatusMessage("Connecting to AmpServer...");
-        if (!client_->connect()) {
-            ui->linkButton->setEnabled(true);
-            emit error("Could not connect to AmpServer. Please check network settings "
-                       "and ensure AmpServer is running.");
-            return;
-        }
-
-        // Query amplifier state to detect if it's already running
-        emit appendStatusMessage("Querying amplifier state...");
-        client_->queryAmpState();
-        if (client_->ampWasRunning()) {
-            int detectedRate = client_->detectedSampleRate();
-            if (detectedRate > 0) {
-                // Can't detect native vs decimated from the stream, default to decimated
-                // for ambiguous rates (500, 1000)
-                ui->sampleRateComboBox->setCurrentIndex(
-                    findSampleRateIndex(detectedRate, /*native=*/false));
-                emit appendStatusMessage(QString("Amplifier already running at %1 Hz").arg(detectedRate));
-            } else {
-                emit appendStatusMessage("Amplifier already running (sample rate detection failed, using configured rate)");
+        // Run the whole connect/query/start sequence off the UI thread: it
+        // blocks on the network for seconds (NA500 cold start: 15+ s waiting
+        // for power-on) and must not freeze the UI even if the AmpServer is
+        // unresponsive. All UI updates flow back through queued signals.
+        joinLinkThread();
+        linkThread_ = std::make_unique<std::thread>([this]() {
+            emit appendStatusMessage("Connecting to AmpServer...");
+            if (!client_->connect()) {
+                emit linkFinished(false,
+                    "Could not connect to AmpServer. Please check network settings "
+                    "and ensure AmpServer is running.");
+                return;
             }
-            // Update sensor layout from detected net code
-            egiamp::NetCode netCode = client_->detectedNetCode();
-            emit sensorLayoutUpdated(QString::fromUtf8(egiamp::netCodeName(netCode)));
 
-            // Show persistent warning in status bar for ambiguous rates where we
-            // cannot detect whether the FPGA anti-alias filter is active
-            if (detectedRate == 500 || detectedRate == 1000) {
-                ui->statusBar->setStyleSheet("QStatusBar { color: #b35900; }");
-                ui->statusBar->showMessage(
-                    QString("Warning: Amp started externally at %1 Hz — "
-                            "filter mode unknown, timestamp alignment may be inaccurate")
-                        .arg(detectedRate));
+            // Query amplifier state to detect if it's already running
+            emit appendStatusMessage("Querying amplifier state...");
+            client_->queryAmpState();
+            if (client_->ampWasRunning()) {
+                int detectedRate = client_->detectedSampleRate();
+                if (detectedRate > 0) {
+                    emit appendStatusMessage(
+                        QString("Amplifier already running at %1 Hz").arg(detectedRate));
+                } else {
+                    emit appendStatusMessage(
+                        "Amplifier already running (sample rate detection failed, "
+                        "using configured rate)");
+                }
+                emit ampDetectedRunning(detectedRate);
+                emit sensorLayoutUpdated(
+                    QString::fromUtf8(egiamp::netCodeName(client_->detectedNetCode())));
             }
-        }
 
-        if (!client_->startStreaming()) {
-            ui->linkButton->setEnabled(true);
-            emit error("Failed to start streaming");
-            client_->disconnect();
-            return;
-        }
+            if (!client_->startStreaming()) {
+                client_->disconnect();
+                emit linkFinished(false, "Failed to start streaming");
+                return;
+            }
 
-        emit disableUI();
+            emit linkFinished(true, QString());
+        });
+    }
+}
+
+void EGIAmpWindow::onLinkFinished(bool ok, QString errorMessage) {
+    joinLinkThread();
+    if (ok) {
+        lockUI();
+    } else {
+        ui->linkButton->setEnabled(true);
+        displayError(errorMessage);
+    }
+}
+
+void EGIAmpWindow::onAmpDetectedRunning(int detectedRate) {
+    if (detectedRate > 0) {
+        // Can't detect native vs decimated from the stream, default to decimated
+        // for ambiguous rates
+        ui->sampleRateComboBox->setCurrentIndex(
+            findSampleRateIndex(detectedRate, /*native=*/false));
+    }
+
+    // Show persistent warning in status bar for ambiguous rates where we
+    // cannot detect whether the FPGA anti-alias filter is active
+    if (detectedRate == 500 || detectedRate == 1000) {
+        ui->statusBar->setStyleSheet("QStatusBar { color: #b35900; }");
+        ui->statusBar->showMessage(
+            QString("Warning: Amp started externally at %1 Hz — "
+                    "filter mode unknown, timestamp alignment may be inaccurate")
+                .arg(detectedRate));
     }
 }
 
@@ -313,17 +350,26 @@ void EGIAmpWindow::toggleImpedanceMode(bool enabled) {
 }
 
 void EGIAmpWindow::populateSampleRateCombo() {
-    // Each item stores {sampleRate, isNative} as user data
+    // Each item stores {sampleRate, isNative} as user data.
+    // Union of NA400 and NA500 capabilities; the client validates the
+    // selection against the actual amplifier model at link time
+    // (supportsSampleRate in AmpServerProtocol.h) and refuses with a clear
+    // error if unsupported. Unqualified labels select decimated mode where
+    // the model offers it (NA500 at 2000 Hz; NA400 runs 2000 Hz native as
+    // that is its only option).
     struct RateEntry { const char* label; int rate; bool native; };
     static constexpr RateEntry entries[] = {
-        {"250 Hz",                    250,  false},
-        {"500 Hz",                    500,  false},
-        {"500 Hz \xe2\x80\x94 Low Latency",  500,  true},
-        {"1000 Hz",                   1000, false},
-        {"1000 Hz \xe2\x80\x94 Low Latency", 1000, true},
-        {"2000 Hz",                   2000, true},
-        {"4000 Hz",                   4000, true},
-        {"8000 Hz",                   8000, true},
+        {"250 Hz",                                        250,   false},
+        {"250 Hz \xe2\x80\x94 Low Latency (NA500 only)",  250,   true},
+        {"500 Hz",                                        500,   false},
+        {"500 Hz \xe2\x80\x94 Low Latency",               500,   true},
+        {"1000 Hz",                                       1000,  false},
+        {"1000 Hz \xe2\x80\x94 Low Latency",              1000,  true},
+        {"2000 Hz",                                       2000,  false},
+        {"2000 Hz \xe2\x80\x94 Low Latency",              2000,  true},
+        {"4000 Hz",                                       4000,  true},
+        {"8000 Hz",                                       8000,  true},
+        {"16000 Hz (NA500 only)",                         16000, true},
     };
 
     ui->sampleRateComboBox->clear();
@@ -332,7 +378,18 @@ void EGIAmpWindow::populateSampleRateCombo() {
             QString::fromUtf8(e.label),
             QVariantList{e.rate, e.native});
     }
-    ui->sampleRateComboBox->setCurrentIndex(3); // "1000 Hz" default
+    ui->sampleRateComboBox->setCurrentIndex(defaultSampleRateIndex());
+}
+
+int EGIAmpWindow::defaultSampleRateIndex() const {
+    // "1000 Hz" (decimated) is the default
+    for (int i = 0; i < ui->sampleRateComboBox->count(); ++i) {
+        QVariantList data = ui->sampleRateComboBox->itemData(i).toList();
+        if (data[0].toInt() == 1000 && !data[1].toBool()) {
+            return i;
+        }
+    }
+    return 0;
 }
 
 int EGIAmpWindow::findSampleRateIndex(int rate, bool native) const {
@@ -342,7 +399,7 @@ int EGIAmpWindow::findSampleRateIndex(int rate, bool native) const {
             return i;
         }
     }
-    // Rates ≥ 2000 are always native, so a non-native lookup just means
+    // A non-native lookup for a rate that only has native entries just means
     // we couldn't detect the mode — find the rate regardless of mode flag.
     for (int i = 0; i < ui->sampleRateComboBox->count(); ++i) {
         QVariantList data = ui->sampleRateComboBox->itemData(i).toList();
@@ -350,5 +407,5 @@ int EGIAmpWindow::findSampleRateIndex(int rate, bool native) const {
             return i;
         }
     }
-    return 3; // fallback to "1000 Hz"
+    return defaultSampleRateIndex(); // fallback to "1000 Hz"
 }

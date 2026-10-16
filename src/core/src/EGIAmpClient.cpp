@@ -48,6 +48,8 @@ bool EGIAmpClient::connect() {
         return false;
     }
 
+    dataListening_ = false;  // Fresh data connection, not yet listening
+
     // Create notification stream — lives as long as the connection
     std::string streamName = config_.streamName();
     notificationStreamer_.createNotificationOutlet(
@@ -119,8 +121,21 @@ bool EGIAmpClient::cmd_ImpedanceAcquisitionState() {
 
 bool EGIAmpClient::queryAmplifierDetails() {
     try {
-        std::string response = connection_.sendCommand(
-            "cmd_GetAmpDetails", config_.amplifierId, 0, "0");
+        std::string response;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            response = connection_.sendCommand(
+                "cmd_GetAmpDetails", config_.amplifierId, 0, "0");
+            if (response.find("amp_details") != std::string::npos) {
+                break;
+            }
+            // Occasionally (observed on the NA500) the response comes back
+            // without the amp_details payload; retry rather than proceeding
+            // with an Unknown amplifier type, which would cascade into wrong
+            // packet-format and initialization decisions.
+            emitStatus("Amplifier details incomplete (attempt " +
+                       std::to_string(attempt + 1) + "/3): " + response + "\n");
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
 
         emitStatus("__________________________\n  Amplifier Details\n__________________________\n");
 
@@ -144,6 +159,8 @@ bool EGIAmpClient::queryAmplifierDetails() {
                     details_.amplifierType = AmplifierType::NA300;
                 } else if (value.find("NA400") != std::string::npos) {
                     details_.amplifierType = AmplifierType::NA400;
+                } else if (value.find("NA500") != std::string::npos) {
+                    details_.amplifierType = AmplifierType::NA500;
                 }
 
             } else if (key.find("legacy_board") != std::string::npos) {
@@ -169,6 +186,10 @@ bool EGIAmpClient::queryAmplifierDetails() {
         emitStatus("__________________________\n__________________________\n");
 
         details_.scalingFactor = getScalingFactor(details_.amplifierType);
+        if (details_.scalingFactor == 1.0f) {
+            emitStatus("Warning: no calibrated microvolt scaling factor for this "
+                       "amplifier model; float output will be raw ADC counts.\n");
+        }
 
         return true;
     } catch (...) {
@@ -176,9 +197,57 @@ bool EGIAmpClient::queryAmplifierDetails() {
     }
 }
 
+void EGIAmpClient::ensureListening() {
+    // Send cmd_ListenToAmp at most once per data connection. The NA500 keeps
+    // one persistent listening connection for the whole session because its
+    // AmpServer wedges data delivery once a listener is dropped (no new
+    // listener receives data until the amp is restarted) and
+    // cmd_StopListeningToAmp wedges the client session outright.
+    if (!dataListening_) {
+        connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+        dataListening_ = true;
+    }
+}
+
 bool EGIAmpClient::isAmplifierStreaming() {
     // Try to receive data with a short timeout to detect if amp is already running.
-    // After detection, we reconnect the data stream to reset the buffer position.
+    if (details_.amplifierType == AmplifierType::NA500) {
+        // NA500: probe on the persistent listening connection and leave it
+        // open — never StopListening or reconnect (see ensureListening()).
+        // The consumed packet is negligible; the reader tolerates starting
+        // mid-stream.
+        try {
+            ensureListening();
+            auto& stream = connection_.dataStream();
+            stream.clear();
+            connection_.setDataStreamTimeout(std::chrono::seconds(2));
+
+            AmpDataPacketHeader header{};
+            stream.read(reinterpret_cast<char*>(&header), sizeof(header));
+            if (!stream.good()) {
+                stream.clear();
+                return false;
+            }
+            // Consume the payload so the stream stays packet-aligned
+            const uint64_t length = big_to_native(header.length);
+            if (length == 0 || length > (10u << 20)) {
+                // Implausible length — treat as a corrupt/misaligned stream
+                stream.clear();
+                return false;
+            }
+            std::vector<char> payload(length);
+            stream.read(payload.data(), static_cast<std::streamsize>(length));
+            const bool ok = stream.good();
+            stream.clear();
+            return ok;
+        } catch (...) {
+            try { connection_.dataStream().clear(); } catch (...) {}
+            return false;
+        }
+    }
+
+    // NA400 and others: probe, then reconnect the data stream to reset the
+    // buffer position.
     try {
         connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
 
@@ -195,6 +264,7 @@ bool EGIAmpClient::isAmplifierStreaming() {
         // Stop listening and reconnect the data stream to clear any buffered data
         connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
         connection_.reconnectDataStream();
+        dataListening_ = false;
 
         return wasStreaming;
     } catch (...) {
@@ -202,6 +272,7 @@ bool EGIAmpClient::isAmplifierStreaming() {
         try {
             connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
             connection_.reconnectDataStream();
+            dataListening_ = false;
         } catch (...) {}
         return false;
     }
@@ -209,11 +280,19 @@ bool EGIAmpClient::isAmplifierStreaming() {
 
 int EGIAmpClient::detectSampleRate() {
     // Read packets and calculate sample rate from unique packetCounter values.
-    // At lower sample rates, duplicate packets are sent (same packetCounter),
-    // so we count unique samples, not total packets received.
+    // At lower sample rates the NA400 sends duplicate packets (same
+    // packetCounter), so we count unique samples, not total packets received.
     // Also detects the sensor net code from the first packet.
+    // NA500: measures on the persistent listening connection and leaves it
+    // open (see ensureListening()); others listen/stop/reconnect around the
+    // measurement.
+    const bool persistent = details_.amplifierType == AmplifierType::NA500;
     try {
-        connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+        if (persistent) {
+            ensureListening();
+        } else {
+            connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+        }
 
         auto& stream = connection_.dataStream();
         stream.clear();
@@ -224,9 +303,18 @@ int EGIAmpClient::detectSampleRate() {
         uint64_t lastPacketCounter = 0;
         int uniqueSampleCount = 0;
         bool netCodeCaptured = false;
-        constexpr int packetsToRead = 1000;  // Read ~1 second of packets
+        // Cap by packet count AND measured duration: the NA400 delivers ~1000
+        // packets/s at every rate (duplicates below 1000 Hz), but the NA500
+        // sends no duplicates, so at 250 Hz 1000 chunked packets would take
+        // ~30 s. ~1.2 s of amp-timestamped data is plenty for rate detection.
+        constexpr int packetsToRead = 1000;
+        constexpr uint64_t maxSpanUs = 1200000;
 
         for (int i = 0; i < packetsToRead && stream.good(); i++) {
+            if (firstTimestamp != 0 && lastTimestamp > firstTimestamp &&
+                lastTimestamp - firstTimestamp >= maxSpanUs) {
+                break;
+            }
             AmpDataPacketHeader header{};
             stream.read(reinterpret_cast<char*>(&header), sizeof(header));
             header.ampID = big_to_native(header.ampID);
@@ -247,6 +335,14 @@ int EGIAmpClient::detectSampleRate() {
                 if (packet.packetCounter != lastPacketCounter) {
                     if (firstTimestamp == 0) {
                         firstTimestamp = packet.timeStamp;
+                    } else if (packet.timeStamp > lastTimestamp + 1000000 ||
+                               packet.timeStamp < lastTimestamp) {
+                        // Timestamp discontinuity: stale pre-restart samples
+                        // buffered on the connection followed by fresh data
+                        // (common on the NA500's persistent connection).
+                        // Restart the measurement from here.
+                        firstTimestamp = packet.timeStamp;
+                        uniqueSampleCount = 0;
                     }
                     lastTimestamp = packet.timeStamp;
                     lastPacketCounter = packet.packetCounter;
@@ -255,8 +351,13 @@ int EGIAmpClient::detectSampleRate() {
             }
         }
 
-        connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
-        connection_.reconnectDataStream();
+        if (!persistent) {
+            connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
+            connection_.reconnectDataStream();
+            dataListening_ = false;
+        } else {
+            stream.clear();
+        }
 
         if (uniqueSampleCount > 1 && lastTimestamp > firstTimestamp) {
             // timeStamp is in microseconds
@@ -264,24 +365,40 @@ int EGIAmpClient::detectSampleRate() {
             const double durationSec = durationUs / 1000000.0;
             const double rate = (uniqueSampleCount - 1) / durationSec;
 
-            // Round to nearest standard rate (250, 500, 1000)
+            // Snap to the nearest standard rate. Includes the high native
+            // rates so an externally-configured NA400 (up to 8000) or NA500
+            // (up to 16000) is detected correctly.
             if (rate < 375) return 250;
             if (rate < 750) return 500;
-            return 1000;
+            if (rate < 1500) return 1000;
+            if (rate < 3000) return 2000;
+            if (rate < 6000) return 4000;
+            if (rate < 12000) return 8000;
+            return 16000;
         }
 
         return 0;  // Detection failed
     } catch (...) {
         try {
-            connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
-            connection_.reconnectDataStream();
+            if (!persistent) {
+                connection_.sendDatastreamCommand("cmd_StopListeningToAmp", config_.amplifierId, 0, "0");
+                connection_.reconnectDataStream();
+                dataListening_ = false;
+            } else {
+                connection_.dataStream().clear();
+            }
         } catch (...) {}
         return 0;
     }
 }
 
 bool EGIAmpClient::queryAmpState() {
-    // Query if amp is running and detect its sample rate and sensor
+    // Query if amp is running and detect its sample rate and sensor.
+    // Amplifier details first: the probes below behave differently per model
+    // (the NA500 needs the persistent-listener variants).
+    if (details_.amplifierType == AmplifierType::Unknown) {
+        queryAmplifierDetails();
+    }
     ampWasRunning_ = isAmplifierStreaming();
 
     if (ampWasRunning_) {
@@ -296,6 +413,32 @@ bool EGIAmpClient::queryAmpState() {
     return ampWasRunning_;
 }
 
+bool EGIAmpClient::waitForAmpPowerOn(const int timeoutSeconds) {
+    // Read the notification stream until ntn_AmpPowerOn arrives (requires an
+    // active cmd_ReceiveNotifications subscription). Safe to call from the
+    // main thread during startup (notification thread not yet running) and
+    // from the notification thread during proactive recovery (same thread
+    // that normally reads this stream).
+    try {
+        auto& notifStream = connection_.notificationStream();
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::seconds(timeoutSeconds);
+        while (std::chrono::steady_clock::now() < deadline && !stopFlag_) {
+            notifStream.clear();
+            connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
+            char notifBuffer[4096];
+            notifStream.getline(notifBuffer, sizeof(notifBuffer));
+            if (!notifStream.good()) {
+                continue;  // Timeout, retry
+            }
+            if (std::string(notifBuffer).find("ntn_AmpPowerOn") != std::string::npos) {
+                return true;
+            }
+        }
+    } catch (...) {}
+    return false;
+}
+
 bool EGIAmpClient::initAmplifier() {
     emitStatus("Initializing Amplifier...\n");
 
@@ -306,17 +449,34 @@ bool EGIAmpClient::initAmplifier() {
     connection_.sendCommand("cmd_Stop", ampId, 0, "0");
     connection_.sendCommand("cmd_SetPower", ampId, 0, "0");
 
-    // Set sample rate
-    // Native rates: 500, 1000, 2000, 4000, 8000 (no FPGA anti-alias filter, lower latency)
-    // Decimated rates: 250, 500, 1000 (FPGA anti-alias filter, higher latency)
-    const bool useNative = config_.sampleRate > 1000 ||
-                     (config_.fastRecovery && config_.sampleRate >= 500);
+    // The NA500 silently drops configuration and start commands issued while
+    // it is still powering up (which can take ~10 s from cold), so power it on
+    // first and wait for ntn_AmpPowerOn before configuring. The NA400 path is
+    // left untouched: it tolerates the immediate sequence, and waiting here
+    // would add an unverified dependency on its notification timing.
+    if (details_.amplifierType == AmplifierType::NA500) {
+        connection_.sendCommand("cmd_ReceiveNotifications", ampId, 0, "0");
+        connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
+        emitStatus("Waiting for amplifier power-on...\n");
+        if (waitForAmpPowerOn(30)) {
+            emitStatus("Amplifier powered on.\n");
+        } else {
+            emitStatus("Warning: no power-on confirmation within 30 s, continuing.\n");
+        }
+    }
+
+    // Set sample rate. Native rates have no FPGA anti-alias filter (lower
+    // latency); decimated rates do. The rate ranges for each mode depend on
+    // the amplifier model — see usesNativeRate() in AmpServerProtocol.h.
+    const bool useNative = usesNativeRate(details_.amplifierType,
+                                          config_.sampleRate, config_.fastRecovery);
+
+    if (config_.fastRecovery && !useNative) {
+        emitStatus("Warning: Fast recovery not available at " +
+                   std::to_string(config_.sampleRate) + " Hz, using decimated mode.\n");
+    }
 
     if (useNative) {
-        if (config_.fastRecovery && config_.sampleRate < 500) {
-            emitStatus("Warning: Fast recovery not available at " +
-                       std::to_string(config_.sampleRate) + " Hz, using decimated mode.\n");
-        }
         connection_.sendCommand("cmd_SetNativeRate", ampId, 0, sampleRate);
         emitStatus("Using native rate (fast recovery, no FPGA filter).\n");
     } else {
@@ -324,8 +484,10 @@ bool EGIAmpClient::initAmplifier() {
         emitStatus("Using decimated rate (FPGA anti-alias filter enabled).\n");
     }
 
-    // Power on
-    connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
+    // Power on (NA500 was already powered on above, before configuration)
+    if (details_.amplifierType != AmplifierType::NA500) {
+        connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
+    }
 
     // Configure acquisition state (impedance or default)
     if (config_.impedance) {
@@ -361,8 +523,13 @@ void EGIAmpClient::haltAmplifier() {
     impedanceModeActive_ = false;
 
     try {
-        connection_.sendDatastreamCommand("cmd_StopListeningToAmp",
-                                          config_.amplifierId, 0, "0");
+        // NA500: cmd_StopListeningToAmp wedges data delivery for the whole
+        // client session (and possibly beyond) — never send it; disconnecting
+        // the socket is sufficient cleanup.
+        if (details_.amplifierType != AmplifierType::NA500) {
+            connection_.sendDatastreamCommand("cmd_StopListeningToAmp",
+                                              config_.amplifierId, 0, "0");
+        }
         if (weInitializedAmp_) {
             // Only stop/power off if we initialized the amp ourselves
             connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
@@ -389,8 +556,28 @@ bool EGIAmpClient::startStreaming() {
 
     stopFlag_ = false;
 
+    // Everything below talks to the AmpServer; sendCommand() throws when the
+    // server stops responding (seen on the NA500 after firmware crashes).
+    // Convert that into a clean failure instead of letting the exception
+    // escape into the caller (e.g. a Qt slot).
+    try {
+
     if (!queryAmplifierDetails()) {
         emitError("Failed to get amplifier details");
+        return false;
+    }
+
+    // Reject unsupported rate/mode combinations before touching the amp.
+    // The GUI offers the union of all models' rates; which are valid is only
+    // knowable now that the amplifier has identified itself.
+    if (!supportsSampleRate(details_.amplifierType, config_.sampleRate,
+                            config_.fastRecovery)) {
+        const bool native = usesNativeRate(details_.amplifierType,
+                                           config_.sampleRate, config_.fastRecovery);
+        emitError(std::string(amplifierTypeName(details_.amplifierType)) +
+                  " does not support " + std::to_string(config_.sampleRate) +
+                  " Hz in " + (native ? "native (low latency)" : "decimated") +
+                  " mode. Please select a different sample rate.");
         return false;
     }
 
@@ -407,10 +594,12 @@ bool EGIAmpClient::startStreaming() {
                 // Rate mismatch - must reinitialize
                 needsReinit = true;
             } else if (!config_.fastRecovery &&
-                       (config_.sampleRate == 500 || config_.sampleRate == 1000)) {
-                // Rate matches, but 500/1000 Hz can be either native or decimated
-                // and the user configured decimated. Reinit to guarantee decimated
-                // mode so the alignment we apply is correct.
+                       config_.sampleRate >= minNativeRate(details_.amplifierType) &&
+                       config_.sampleRate <= maxDecimatedRate(details_.amplifierType)) {
+                // Rate matches, but at rates where this amp supports both modes
+                // (NA400: 500/1000; NA500: 250-2000) the stream doesn't reveal
+                // native vs decimated, and the user configured decimated. Reinit
+                // to guarantee decimated mode so the alignment we apply is correct.
                 needsReinit = true;
                 emitStatus("Reinitializing to ensure decimated mode for alignment.\n");
             }
@@ -428,8 +617,8 @@ bool EGIAmpClient::startStreaming() {
             // Stop, change rate, restart (no power cycle)
             connection_.sendCommand("cmd_Stop", config_.amplifierId, 0, "0");
             const std::string rateStr = std::to_string(config_.sampleRate);
-            const bool useNative = config_.sampleRate > 1000 ||
-                             (config_.fastRecovery && config_.sampleRate >= 500);
+            const bool useNative = usesNativeRate(details_.amplifierType,
+                                                  config_.sampleRate, config_.fastRecovery);
             if (useNative) {
                 connection_.sendCommand("cmd_SetNativeRate", config_.amplifierId, 0, rateStr);
                 emitStatus("Using native rate (fast recovery, no FPGA filter).\n");
@@ -460,12 +649,15 @@ bool EGIAmpClient::startStreaming() {
                 emitStatus("Using detected sample rate: " + std::to_string(detectedRate) + " Hz\n");
             }
 
-            // At 1000 Hz, native and decimated modes are indistinguishable in the
-            // data stream. Warn the user but trust their configuration selection.
-            if (config_.sampleRate == 1000) {
+            // At rates where the amp supports both modes (NA400: 500/1000;
+            // NA500: 250-2000), native and decimated are indistinguishable in
+            // the data stream. Warn the user but trust their configuration.
+            if (config_.sampleRate >= minNativeRate(details_.amplifierType) &&
+                config_.sampleRate <= maxDecimatedRate(details_.amplifierType)) {
                 const bool weUseNative = config_.fastRecovery;
                 emitStatus("Warning: Cannot verify whether the amplifier is running in native or "
-                           "decimated mode at 1000 Hz. Assuming " +
+                           "decimated mode at " + std::to_string(config_.sampleRate) +
+                           " Hz. Assuming " +
                            std::string(weUseNative ? "native" : "decimated") +
                            " mode as configured.\n");
             }
@@ -476,9 +668,9 @@ bool EGIAmpClient::startStreaming() {
         weInitializedAmp_ = true;
     }
 
-    // Start listening for data
-    connection_.sendDatastreamCommand("cmd_ListenToAmp",
-                                      config_.amplifierId, 0, "0");
+    // Start listening for data (no-op on the NA500 if the persistent
+    // connection is already listening from the probes above)
+    ensureListening();
 
     if (details_.channelCount != 0) {
         emitChannelCount(details_.channelCount);
@@ -553,6 +745,14 @@ bool EGIAmpClient::startStreaming() {
     });
 
     return true;
+
+    } catch (const std::exception& ex) {
+        emitError(std::string("Failed to start streaming: ") + ex.what());
+        return false;
+    } catch (...) {
+        emitError("Failed to start streaming: unknown error");
+        return false;
+    }
 }
 
 void EGIAmpClient::stopStreaming() {
@@ -687,6 +887,7 @@ void EGIAmpClient::processNotifications() {
     auto& stream = connection_.notificationStream();
     bool ampStopped = false;
     bool pendingRecovery = false;  // Set when stop+poweroff sequence detected
+    int streamLostPollTicks = 0;   // NA500 passive-recovery poll counter
 
     while (!stopFlag_) {
         // If stop+poweroff was detected and reader has noticed stream loss,
@@ -696,6 +897,28 @@ void EGIAmpClient::processNotifications() {
             ampStopped = false;
             attemptRecovery(true);
             continue;
+        }
+
+        // The NA500 emits no ntn_AmpStarted, so a restart by an external app
+        // (without a power cycle) produces no notification we can react to.
+        // While the stream is lost, poll the data port every few seconds and
+        // run passive recovery once data is flowing again. (The reader thread
+        // is blocked on recoveryCv_ whenever streamLost_ is set, so touching
+        // the data stream here is safe.)
+        if (streamLost_ && !pendingRecovery &&
+            details_.amplifierType == AmplifierType::NA500) {
+            if (++streamLostPollTicks >= 5) {
+                streamLostPollTicks = 0;
+                if (isAmplifierStreaming()) {
+                    emitStatus("Data detected on amp restart (no notification); "
+                               "attempting passive recovery.\n");
+                    ampStopped = false;
+                    attemptRecovery(false);
+                    continue;
+                }
+            }
+        } else {
+            streamLostPollTicks = 0;
         }
 
         stream.clear();  // Reset stream state after any prior timeout
@@ -871,7 +1094,10 @@ void EGIAmpClient::readPacketFormat2() {
                     std::string streamName = config_.streamName();
                     streamer_.createOutlet(streamName, eegChannelCount, physioChannelCount, 0,
                                            config_.sampleRate, config_.serverAddress, details_,
-                                           config_.nativeFormat, config_.modeSuffix());
+                                           config_.nativeFormat,
+                                           config_.modeSuffix(usesNativeRate(
+                                               details_.amplifierType, config_.sampleRate,
+                                               config_.fastRecovery)));
 
                     // Create separate DIN event stream (irregular rate, no filter delay)
                     dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
@@ -937,14 +1163,15 @@ void EGIAmpClient::readPacketFormat2() {
                             double durationSec = static_cast<double>(durationUs) / 1000000.0;
                             double measuredRate = (rateCheckSampleCount - 1) / durationSec;
 
-                            // Snap to standard rates (250, 500, 1000, 2000, 4000, 8000)
+                            // Snap to standard rates (250 ... 16000)
                             int newRate;
                             if (measuredRate < 375) newRate = 250;
                             else if (measuredRate < 750) newRate = 500;
                             else if (measuredRate < 1500) newRate = 1000;
                             else if (measuredRate < 3000) newRate = 2000;
                             else if (measuredRate < 6000) newRate = 4000;
-                            else newRate = 8000;
+                            else if (measuredRate < 12000) newRate = 8000;
+                            else newRate = 16000;
 
                             if (newRate != config_.sampleRate) {
                                 emitStatus("Sample rate changed from " +
@@ -960,7 +1187,10 @@ void EGIAmpClient::readPacketFormat2() {
                                                     (physioConnectionStatus_ > 0) ? 16 : 0;
                                 streamer_.createOutlet(streamName, nChannels + 1, physioChCount, 0,
                                                        config_.sampleRate, config_.serverAddress, details_,
-                                                       config_.nativeFormat, config_.modeSuffix());
+                                                       config_.nativeFormat,
+                                                       config_.modeSuffix(usesNativeRate(
+                                                           details_.amplifierType, config_.sampleRate,
+                                                           config_.fastRecovery)));
                                 dinStreamer_.createDINOutlet(streamName + "_DIN", config_.serverAddress);
 
                                 // Apply timestamp offset + physio delay for the new rate
@@ -1168,10 +1398,18 @@ bool EGIAmpClient::attemptRecovery(const bool reinitialize) {
         // At this point, streamLost_ is true and reader thread is blocked on CV.
         // Safe to touch the data stream.
 
-        // Reconnect data stream
-        if (!connection_.reconnectDataStream()) {
-            emitError("Failed to reconnect data stream during recovery.");
-            return false;
+        // Reconnect data stream. NA500: keep the persistent listening
+        // connection instead — data resumes on the same socket after an amp
+        // restart (verified on hardware), whereas a reconnected listener would
+        // never receive data.
+        if (details_.amplifierType != AmplifierType::NA500) {
+            if (!connection_.reconnectDataStream()) {
+                emitError("Failed to reconnect data stream during recovery.");
+                return false;
+            }
+            dataListening_ = false;
+        } else {
+            connection_.dataStream().clear();
         }
 
         bool needsNewOutlet = false;
@@ -1194,21 +1432,30 @@ bool EGIAmpClient::attemptRecovery(const bool reinitialize) {
             // Even when the rate matches, the mode (native vs decimated) might differ.
             // Close the outlet when we can't confirm the mode is the same.
             if (!needsNewOutlet && streamer_.hasOutlet()) {
-                if (config_.sampleRate == 1000) {
-                    // At 1000 Hz, there is no way to distinguish native from decimated
-                    // in the data stream. Trust user's configured mode selection.
+                const bool modeAmbiguous =
+                    config_.sampleRate >= minNativeRate(details_.amplifierType) &&
+                    config_.sampleRate <= maxDecimatedRate(details_.amplifierType);
+                if (modeAmbiguous && config_.fastRecovery && config_.sampleRate != 1000) {
+                    // External apps (Net Station) use decimated mode at these
+                    // rates, but we were configured native — assume mismatch.
+                    needsNewOutlet = true;
+                    emitStatus("Recreating outlet: our native " +
+                               std::to_string(config_.sampleRate) +
+                               " Hz vs external decimated " +
+                               std::to_string(config_.sampleRate) + " Hz.\n");
+                } else if (modeAmbiguous) {
+                    // No way to distinguish native from decimated in the data
+                    // stream at this rate. Trust user's configured mode selection.
+                    // (1000 Hz native is offered by Net Station as "Fast Recovery",
+                    // so at 1000 Hz we trust the config in either mode.)
                     emitStatus("Warning: Cannot verify whether the amplifier is running in native or "
-                               "decimated mode at 1000 Hz. Assuming " +
+                               "decimated mode at " + std::to_string(config_.sampleRate) +
+                               " Hz. Assuming " +
                                std::string(config_.fastRecovery ? "native" : "decimated") +
                                " mode as configured.\n");
-                } else if (config_.sampleRate == 500 && config_.fastRecovery) {
-                    // Net Station always uses decimated 500 Hz, but we use native.
-                    needsNewOutlet = true;
-                    emitStatus("Recreating outlet: our native 500 Hz vs external decimated 500 Hz.\n");
                 }
-                // 250 Hz: only decimated mode exists — always matches
-                // 500 Hz decimated: Net Station also uses decimated — matches
-                // 2000+ Hz: only native mode exists — always matches
+                // Rates only one mode supports (NA400: 250, 2000+; NA500: 4000+)
+                // always match.
             }
 
             weInitializedAmp_ = false;
@@ -1243,8 +1490,9 @@ bool EGIAmpClient::attemptRecovery(const bool reinitialize) {
             emitStatus("Reusing existing LSL outlet (settings unchanged).\n");
         }
 
-        // Start listening for data on the new stream
-        connection_.sendDatastreamCommand("cmd_ListenToAmp", config_.amplifierId, 0, "0");
+        // Start listening for data on the new stream (no-op on the NA500,
+        // whose persistent connection is still registered as a listener)
+        ensureListening();
 
         // Signal recovery to reader thread
         streamLost_ = false;
