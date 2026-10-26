@@ -154,6 +154,18 @@ inline float getScalingFactor(AmplifierType type) {
 // 250/500/1000/2000/4000/8000. It accepts 16000 but delivers only ~8000
 // samples/s there, so 16000 is not offered. Unlike the NA400, the NA500 never sends
 // duplicate packets at sub-1000 Hz decimated rates.
+// Digitization-to-client latency (ms) subtracted from every timestamp when the
+// config does not set one, a little under the value measured with
+// scripts/audio_latency_test so a sample is never back-dated before its event.
+// NA400: ~5 ms. NA500: ~1.0 ms + 1.1 sample periods (5.4 ms at 250 Hz down to
+// 1.0 ms at 8 kHz), so its default follows the rate.
+inline double defaultSystemDelayMs(AmplifierType type, int sampleRate) {
+    if (type == AmplifierType::NA500 && sampleRate > 0) {
+        return 0.8 + 1000.0 / sampleRate;
+    }
+    return 4.5;
+}
+
 inline int maxDecimatedRate(AmplifierType type) {
     return type == AmplifierType::NA500 ? 2000 : 1000;
 }

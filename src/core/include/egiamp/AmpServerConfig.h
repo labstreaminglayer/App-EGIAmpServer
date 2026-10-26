@@ -2,6 +2,7 @@
 #define EGIAMP_AMPSERVERCONFIG_H
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <stdexcept>
 
@@ -31,8 +32,9 @@ struct AmpServerConfig {
     // scripts/audio_latency_test (native modes). Applied unconditionally, on top
     // of the decimated-only FPGA filter offset. Default intentionally slightly
     // under the measured value so we never back-date a sample *before* its event
-    // (a response cannot precede its stimulus); user-tunable.
-    double systemDelayMs = 4.5;
+    // (a response cannot precede its stimulus); user-tunable. Unset means the
+    // per-model default, defaultSystemDelayMs() in AmpServerProtocol.h.
+    std::optional<double> systemDelayMs;
     bool impedance = false;
     bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
 
