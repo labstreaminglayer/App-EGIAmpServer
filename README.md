@@ -109,7 +109,7 @@ Bypasses the FPGA filter and samples directly at the requested rate. This provid
 - Reduced bandwidth (~1/4 of sample rate, e.g., 250 Hz at 1000 Hz sample rate)
 - Optimized for EEG-TMS and real-time BCI applications
 
-Available native rates: 500, 1000, 2000, 4000, 8000 Hz (NA400); 250, 500, 1000, 2000, 4000, 8000 Hz (NA500)
+Available native rates: 500, 1000, 2000, 4000, 8000 Hz (NA400); 250, 500, 1000, 2000, 4000 Hz (NA500)
 
 Use `--fast-recovery` (or a "Low Latency" dropdown entry) to select native mode for rates where the model offers both.
 
@@ -138,7 +138,7 @@ NA500 support was verified against real hardware (firmware 0.4.9). The amplifier
 Differences from the NA400 that this app handles automatically:
 
 - **Scaling**: 0.044703 µV/bit (±375 mV over 24 bits, matching the GES 500 datasheet and Net Station 6).
-- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 8000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz). 16000 Hz is not offered: the amplifier accepts it but delivers only about 8000 samples/s, and the missing samples leave no gap in its packet counter. 8000 Hz loses about 4 samples/s the same way, so its timing drifts; use 4000 Hz or below where timing matters.
+- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 4000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz). 8000 and 16000 Hz are not offered: the amplifier accepts them but delivers at most about 7995 samples/s, and the missing samples leave no gap in its packet counter (about 4 samples/s lost at 8000 Hz, half at 16000 Hz).
 - **Initialization**: the NA500 silently ignores commands sent while it is powering up (~10 s from cold), so the app waits for the power-on notification before configuring it.
 - **Data connection handling**: the NA500's AmpServer serves one data listener per session; once it disconnects, no new listener is served until the command connection closes and a new session starts. The app therefore maintains one persistent data connection per session and never issues `cmd_StopListeningToAmp` (which the NA500 never answers).
 - **Continuous reading**: the NA500 drops samples if its data port goes unread for a few seconds, so the app does not wait for a Physio16 status notification (the NA500 sends none).
