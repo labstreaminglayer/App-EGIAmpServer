@@ -91,6 +91,7 @@ private:
     int detectSampleRate();  // Returns detected sample rate, or 0 if detection failed
     bool initAmplifier();
     void haltAmplifier();
+    void enableNA500FrontEnd();  // no-op on other models
 
     void readPacketFormat1();
     void readPacketFormat2();

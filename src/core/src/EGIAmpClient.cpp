@@ -468,6 +468,9 @@ bool EGIAmpClient::initAmplifier() {
         } else {
             emitStatus("Warning: no power-on confirmation within 30 s, continuing.\n");
         }
+        // Front-end switch commands sent within ~20 ms of power-on are silently
+        // lost (measured), which leaves the EEG at full scale. Let it settle.
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     // Set sample rate. Native rates have no FPGA anti-alias filter (lower
@@ -505,12 +508,21 @@ bool EGIAmpClient::initAmplifier() {
     } else {
         // Set default acquisition state when not in impedance mode
         connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
+        enableNA500FrontEnd();
     }
 
     // Start
     connection_.sendCommand("cmd_Start", ampId, 0, "0");
 
     return true;
+}
+
+void EGIAmpClient::enableNA500FrontEnd() {
+    // The NA500's EEG sits at negative full scale until its buffered reference
+    // is switched on, and every cmd_Stop switches it off again.
+    if (details_.amplifierType == AmplifierType::NA500) {
+        connection_.sendCommand("cmd_SetBufferedReference", config_.amplifierId, 0, "1");
+    }
 }
 
 void EGIAmpClient::haltAmplifier() {
@@ -642,6 +654,9 @@ bool EGIAmpClient::startStreaming() {
                 }
             }
 
+            if (!config_.impedance) {
+                enableNA500FrontEnd();
+            }
             connection_.sendCommand("cmd_Start", config_.amplifierId, 0, "0");
             weInitializedAmp_ = true;
         } else {

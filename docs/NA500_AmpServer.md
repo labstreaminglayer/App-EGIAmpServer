@@ -58,6 +58,14 @@ data on 9879). Only the differences that matter to a client are listed.
 - The server does not shut down on `cmd_Exit`. GTEN commands and `cmd_SetFilterAndDecimate` are not
   recognized (so they re-run the previous command).
 
+## Front end
+
+- After power-on the EEG channels read negative full scale (-8388608 counts) until
+  `cmd_SetBufferedReference 1` is sent. `cmd_Stop` switches the buffered reference off again, so send
+  it after every stop (before or after `cmd_Start`; either works).
+- Front-end switch commands sent within about 20 ms of the `cmd_SetPower 1` reply are lost, although
+  they are acknowledged. Wait a moment after power-on before configuring.
+
 ## Notifications
 
 Only four are sent, each after the reply to the command that causes it:
@@ -69,7 +77,8 @@ Only four are sent, each after the reply to the command that causes it:
 | `(notification ntn_AmpStarted 10 0 -1)` | `cmd_GetStartTime` (**not** `cmd_Start`) |
 | `(notification ntn_AmpStopped 11 0 -1)` | `cmd_Stop` |
 
-There is no `ntn_PhysioConnectionStatus` and no client-connected notification.
+There is no `ntn_PhysioConnectionStatus` and no client-connected notification. A notification can be
+lost if its command is sent the instant the notification port connects, before the server has accepted it.
 
 ## Data stream
 

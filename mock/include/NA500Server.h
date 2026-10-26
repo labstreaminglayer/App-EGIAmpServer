@@ -54,6 +54,8 @@ private:
     std::atomic<bool> stopping_{false};
     std::atomic<bool> streaming_{false};
     std::atomic<bool> dinEnabled_{false};
+    std::atomic<bool> bufferedReference_{false};  // EEG sits at the rail while off
+    std::chrono::steady_clock::time_point poweredOnAt_{};  // front end ignores commands just after
     std::thread streamThread_;
     // Full blocks waiting to be written to the data client. Bounded like the
     // device's send ring: while the client is not reading, new blocks are lost.

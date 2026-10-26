@@ -35,8 +35,9 @@ CMD_PORT, NTN_PORT, DATA_PORT = 9877, 9878, 9879
 HEADER = struct.Struct(">qQ")  # amp id, payload length (big-endian)
 PACKET2_SIZE = 1264
 # Packet format 2 fields we inspect (little-endian): din u16 @0, counter u64 @25,
-# timestamp u64 @33, net code u8 @41, first reserved byte @42.
-PKT = struct.Struct("<H23xQQBB")
+# timestamp u64 @33, net code u8 @41, first reserved byte @42, EEG channel 1 @80.
+PKT = struct.Struct("<H23xQQBB37xi")
+RAIL = 8388000  # within a few counts of 24-bit full scale
 
 # Reply values that legitimately differ between units, sessions or runs.
 VOLATILE = re.compile(
@@ -109,6 +110,9 @@ class Session:
         self.cmd_reader = Reader(self.cmd)
         self.ntn = Reader(self._connect(NTN_PORT)) if ntn else None
         self.data = DataReader(self._connect(DATA_PORT)) if data else None
+        # The NA500 accepts each port on its own schedule; a command sent the
+        # instant the ports open can beat the notification port's accept.
+        time.sleep(0.2)
 
     def _connect(self, port):
         sock = socket.create_connection((self.host, port), timeout=5)
@@ -289,6 +293,7 @@ def summarize_stream(d, seconds_host):
         "net_codes": sorted({p[3] for p in pk}),
         "din_most_common": hex(Counter(p[0] for p in pk[reset:]).most_common(1)[0][0]),
         "reserved0_values": sorted({p[4] for p in pk}),
+        "eeg_railed": round(sum(abs(p[5]) >= RAIL for p in pk[reset:]) / max(1, len(pk) - reset), 1),
         "~stale_packets_before_reset": reset,
         "~packets": len(pk),
         "~rate_by_host_clock": round(len(pk) / seconds_host),
@@ -403,6 +408,39 @@ def scenario_stalled_reader(host):
         s.close()
 
 
+def scenario_front_end(host):
+    """Is the EEG usable before and after cmd_SetBufferedReference, and after a Stop?"""
+    s = Session(host, data=True)
+    try:
+        def railed():
+            s.data.packets.clear()
+            time.sleep(1.5)
+            pk = s.data.packets[-500:]
+            return round(sum(abs(p[5]) >= RAIL for p in pk) / max(1, len(pk)), 1)
+        # A switch command sent the moment cmd_SetPower 1 is answered.
+        n = len(s.cmd_reader.lines)
+        s.cmd.sendall(b"(sendCommand cmd_SetPower 0 0 1)\n")
+        while len(s.cmd_reader.lines) == n:
+            time.sleep(0.0005)
+        s.send("cmd_SetBufferedReference", 0, 1, quiet=0.05)
+        s.send("cmd_SetDecimatedRate", 0, 1000)
+        s.send("cmd_Start", -1, -1)
+        out = {"railed_when_set_right_after_power_on": railed()}
+        s.send("cmd_Stop", -1, -1, first=5.0)
+        s.send("cmd_Start", -1, -1)
+        out["railed_after_Start"] = railed()
+        s.send("cmd_SetBufferedReference", 0, 1)
+        out["railed_after_SetBufferedReference_1"] = railed()
+        s.send("cmd_Stop", -1, -1, first=5.0)
+        s.send("cmd_Start", -1, -1)
+        out["railed_after_Stop_Start"] = railed()
+        s.send("cmd_Stop", -1, -1, first=5.0)
+        s.send("cmd_SetPower", 0, 0)
+        return out
+    finally:
+        s.close()
+
+
 def scenario_after_session_end(host):
     """Leave the amp powered and streaming, drop the session, then Start only."""
     s = Session(host, data=True)
@@ -440,6 +478,7 @@ def record(host, active):
             "stream_native_16000": lambda h: scenario_stream(h, 16000, "Native"),
             "data_reconnect": scenario_data_reconnect,
             "stalled_reader": scenario_stalled_reader,
+            "front_end": scenario_front_end,
             "after_session_end": scenario_after_session_end,
         })
     results = {}
