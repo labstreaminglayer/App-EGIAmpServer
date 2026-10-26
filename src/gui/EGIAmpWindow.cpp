@@ -369,7 +369,6 @@ void EGIAmpWindow::populateSampleRateCombo() {
         {"2000 Hz \xe2\x80\x94 Low Latency",              2000,  true},
         {"4000 Hz",                                       4000,  true},
         {"8000 Hz",                                       8000,  true},
-        {"16000 Hz (NA500 only)",                         16000, true},
     };
 
     ui->sampleRateComboBox->clear();

@@ -58,10 +58,10 @@
       }
     },
     "NA500": {
-      "_note": "Rates verified against hardware on 2026-08-31 (serial 0007, system_version 0.4.9, fpga_version 0.6.1.f0). Unlike the NA400, the NA500 sends no duplicate packets at sub-1000 Hz decimated rates, and its native mode extends down to 250 Hz and up to 16000 Hz.",
+      "_note": "Rates verified against hardware on 2026-08-31 (serial 0007, system_version 0.4.9, fpga_version 0.6.1.f0). Unlike the NA400, the NA500 sends no duplicate packets at sub-1000 Hz decimated rates, and its native mode extends down to 250 Hz and up to 8000 Hz. It accepts 16000 Hz but delivers only ~8000 samples/s there (measured 2026-10-26), so 16000 is not offered.",
       "_delay_note": "All shifts 0 = no timestamp compensation in decimated mode. This matches Net Station 6.0.0.60960: libEgiDataSource.dll PhysicalAmp::calculateShift() applies anti-alias shifts only for NA400 (112/66/36 ms eeg, 80/28/3 ms pns) and NA410 (76/34/13, 64/24/3) and leaves the NA500 at zero (verified by decompilation 2026-08-31). If a real DIN->EEG delay is ever measured for NA500 decimated mode (scripts/delay_capture_sweep.py), update these values.",
       "available_rates": [250, 500, 1000, 2000],
-      "fast_recovery_rates": [250, 500, 1000, 2000, 4000, 8000, 16000],
+      "fast_recovery_rates": [250, 500, 1000, 2000, 4000, 8000],
       "source_rate": 1000,
       "eeg_shift_msec": {
         "250": 0,

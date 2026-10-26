@@ -3,6 +3,7 @@
 #include "DataStreamGenerator.h"
 #include "ECIHandler.h"
 #include "MockAmplifier.h"
+#include "NA500Server.h"
 #include "NotificationHandler.h"
 
 #include <csignal>
@@ -36,6 +37,7 @@ void printUsage(const char* programName) {
               << "  HGSN32, HGSN64, HGSN128, HGSN256 - HydroCel GSN nets\n"
               << "  MGSN32, MGSN64, MGSN128, MGSN256 - MicroCel GSN nets\n"
               << "  TestConnector - Test connector (256 channels)\n"
+              << "  None          - No net attached\n"
               << std::endl;
 }
 
@@ -52,6 +54,7 @@ mock::NetCode parseNetCode(const std::string& str) {
     if (str == "MGSN128") return mock::NetCode::MCGSN128_1_0;
     if (str == "MGSN256") return mock::NetCode::MCGSN256_1_0;
     if (str == "TestConnector") return mock::NetCode::TestConnector;
+    if (str == "None") return mock::NetCode::Unknown;  // what an NA500 reports with no net
     return mock::NetCode::GSN256_2_0;  // default
 }
 
@@ -123,6 +126,14 @@ int main(int argc, char* argv[]) {
         amplifier->setNetCode(netCode);
         amplifier->setSerialNumber(serialNumber);
         amplifier->setPhysioConnectionStatus(physioStatus);
+
+        // The NA500's AmpServer is session based (one client per port, no ECI)
+        // and is emulated separately; see NA500Server.h.
+        if (ampType == mock::AmplifierType::NA500) {
+            mock::NA500Server server(amplifier, cmdPort, notifyPort, dataPort);
+            server.run(g_running);
+            return 0;
+        }
 
         // Create handlers
         auto notificationHandler = std::make_shared<mock::NotificationHandler>(

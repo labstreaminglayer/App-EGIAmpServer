@@ -151,7 +151,8 @@ inline float getScalingFactor(AmplifierType type) {
 // Rate/mode capabilities per model, verified against hardware where possible.
 // NA400 (measured): decimated 250/500/1000; native 500/1000/2000/4000/8000.
 // NA500 (measured, fw 0.4.9): decimated 250/500/1000/2000; native
-// 250/500/1000/2000/4000/8000/16000. Unlike the NA400, the NA500 never sends
+// 250/500/1000/2000/4000/8000. It accepts 16000 but delivers only ~8000
+// samples/s there, so 16000 is not offered. Unlike the NA400, the NA500 never sends
 // duplicate packets at sub-1000 Hz decimated rates.
 inline int maxDecimatedRate(AmplifierType type) {
     return type == AmplifierType::NA500 ? 2000 : 1000;
@@ -190,7 +191,7 @@ inline bool supportsSampleRate(AmplifierType type, int sampleRate, bool fastReco
                           : contains({250, 500, 1000});
         case AmplifierType::NA500:
             // Verified on hardware (fw 0.4.9)
-            return native ? contains({250, 500, 1000, 2000, 4000, 8000, 16000})
+            return native ? contains({250, 500, 1000, 2000, 4000, 8000})
                           : contains({250, 500, 1000, 2000});
         default:
             return true;
