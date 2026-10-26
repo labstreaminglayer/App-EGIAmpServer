@@ -15,9 +15,9 @@ namespace {
 
 constexpr int SAMPLES_PER_BLOCK = 8;
 constexpr std::size_t SEND_QUEUE_BLOCKS = 8;
-// Above this the device drops frames silently: at 16 kHz timestamps still step
-// 62 us and the counter steps 1, but only ~8000 packets/s arrive.
-constexpr int MAX_DELIVERED_RATE = 8000;
+// Above this the device drops frames silently (timestamps and counter advance as
+// if all were sent): measured ~7995 packets/s at both 8 kHz and 16 kHz.
+constexpr int MAX_DELIVERED_RATE = 7995;
 // The amp's clock is not synced until a client sends cmd_SetAmpTime; the unit
 // we recorded was about a month behind.
 constexpr int64_t STALE_CLOCK_US = -30LL * 24 * 3600 * 1000000;

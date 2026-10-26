@@ -138,7 +138,7 @@ NA500 support was verified against real hardware (firmware 0.4.9). The amplifier
 Differences from the NA400 that this app handles automatically:
 
 - **Scaling**: 0.044703 µV/bit (±375 mV over 24 bits, matching the GES 500 datasheet and Net Station 6).
-- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 8000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz). 16000 Hz is not offered: the amplifier accepts it but delivers only about 8000 samples/s, and the missing samples leave no gap in its packet counter.
+- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 8000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz). 16000 Hz is not offered: the amplifier accepts it but delivers only about 8000 samples/s, and the missing samples leave no gap in its packet counter. 8000 Hz loses about 4 samples/s the same way, so its timing drifts; use 4000 Hz or below where timing matters.
 - **Initialization**: the NA500 silently ignores commands sent while it is powering up (~10 s from cold), so the app waits for the power-on notification before configuring it.
 - **Data connection handling**: the NA500's AmpServer serves one data listener per session; once it disconnects, no new listener is served until the command connection closes and a new session starts. The app therefore maintains one persistent data connection per session and never issues `cmd_StopListeningToAmp` (which the NA500 never answers).
 - **Continuous reading**: the NA500 drops samples if its data port goes unread for a few seconds, so the app does not wait for a Physio16 status notification (the NA500 sends none).
@@ -157,9 +157,9 @@ There is **no flag to toggle this** — it follows the configured mode automatic
 
 ### 1. System (pipeline) delay — always applied
 
-Every pushed timestamp (EEG, Physio16, **and** DIN) is moved earlier by `systemdelayms` to account for the time between digitization and the sample becoming available here: device firmware + network transmission + our read path. Measured at ~5 ms in native mode using `scripts/audio_latency_test`.
+Every pushed timestamp (EEG, Physio16, **and** DIN) is moved earlier by `systemdelayms` to account for the time between digitization and the sample becoming available here: device firmware + network transmission + our read path. Measured using `scripts/audio_latency_test` at ~5 ms on the NA400, and on the NA500 at ~1.0 ms plus 1.1 sample periods (5.4 ms at 250 Hz, 2.1 ms at 1000 Hz, 1.3 ms at 4000 Hz).
 
-The default is **4.5 ms** — deliberately a little *under* the measured value. Under-compensating is the safe direction: it guarantees a sample is never back-dated to *before* the event that produced it (a response must not precede its stimulus). It is user-configurable; raise it toward the measured latency if you prefer tighter alignment and can accept that risk.
+The default is **4.5 ms** (NA400 and other models) and **0.8 ms + one sample period** on the NA500 (4.8 ms at 250 Hz, 1.8 ms at 1000 Hz) — deliberately a little *under* the measured value. Under-compensating is the safe direction: it guarantees a sample is never back-dated to *before* the event that produced it (a response must not precede its stimulus). It is user-configurable; raise it toward the measured latency if you prefer tighter alignment and can accept that risk.
 
 ### 2. FPGA filter offset — decimated mode only
 
@@ -177,7 +177,7 @@ Both values live in the config file (and persist via File → Save Configuration
 <settings>
   ...
   <physioaligndelayms>33</physioaligndelayms>   <!-- Physio16 realignment, decimated only -->
-  <systemdelayms>4.5</systemdelayms>            <!-- pipeline-latency compensation, always -->
+  <systemdelayms>4.5</systemdelayms>            <!-- pipeline-latency compensation, always; omit for the per-model default -->
 </settings>
 ```
 

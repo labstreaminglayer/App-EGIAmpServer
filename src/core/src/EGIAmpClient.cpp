@@ -1075,7 +1075,9 @@ void EGIAmpClient::readPacketFormat2() {
             // timestamp reflects digitization time, not arrival. This flows to
             // both the EEG/physio chunk and the DIN events (derived below), and
             // is on top of the decimated-only filter offset applied in pushChunk.
-            double batchTimestamp = lsl::local_clock() - config_.systemDelayMs / 1000.0;
+            double batchTimestamp = lsl::local_clock() -
+                config_.systemDelayMs.value_or(
+                    defaultSystemDelayMs(details_.amplifierType, config_.sampleRate)) / 1000.0;
 
             header.ampID = big_to_native(header.ampID);
             header.length = big_to_native(header.length);

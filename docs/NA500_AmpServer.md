@@ -92,9 +92,10 @@ lost if its command is sent the instant the notification port connects, before t
 - Timestamps are microseconds on the amplifier's clock, advancing by exactly `1e6 / rate` per packet
   truncated to an integer (62 µs at 16 kHz). The clock is not synchronized: the unit we measured was a
   month behind until a client sent `cmd_SetAmpTime`.
-- At 16000 Hz only about 8000 packets/s are delivered while timestamps and counters advance as if all
-  16000 were sent: about half the samples are lost without a trace. Rates up to 8000 Hz are delivered in
-  full.
+- The amplifier delivers at most about 7995 packets/s, while timestamps and counters advance as if
+  every sample were sent. At 16000 Hz about half the samples are lost without a trace; at 8000 Hz about
+  4 per second are, enough to make the sample timeline drift by milliseconds over a minute. Rates up to
+  4000 Hz are delivered in full.
 - If the client stops reading for a few seconds, the amplifier drops samples once about 1 MB is
   buffered; the gap shows in the packet counter. Read the data port continuously.
 - With no net attached the net code is 255. Digital inputs read 0 until `cmd_SetDinEnable`, then idle at
