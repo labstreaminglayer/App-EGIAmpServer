@@ -456,6 +456,11 @@ bool EGIAmpClient::initAmplifier() {
     // would add an unverified dependency on its notification timing.
     if (details_.amplifierType == AmplifierType::NA500) {
         connection_.sendCommand("cmd_ReceiveNotifications", ampId, 0, "0");
+        // The NA500 stamps packets with its own clock, which nothing else keeps
+        // in sync; set it to UTC epoch us at power-on, as Net Station does.
+        const auto nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        connection_.sendCommand("cmd_SetAmpTime", ampId, 0, std::to_string(nowUs));
         connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
         emitStatus("Waiting for amplifier power-on...\n");
         if (waitForAmpPowerOn(30)) {
@@ -691,7 +696,10 @@ bool EGIAmpClient::startStreaming() {
         auto& notifStream = connection_.notificationStream();
         const std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
-        for (int attempt = 0; attempt < 10; attempt++) {
+        // The NA500 never sends ntn_PhysioConnectionStatus, and leaving its data
+        // port unread for these 5 s makes it silently drop ~4 s of samples.
+        const int attempts = details_.amplifierType == AmplifierType::NA500 ? 0 : 10;
+        for (int attempt = 0; attempt < attempts; attempt++) {
             notifStream.clear();  // Reset stream state after any prior timeout
             connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
             char notifBuffer[4096];
@@ -1021,6 +1029,12 @@ void EGIAmpClient::readPacketFormat2() {
     uint64_t lastPacketCounter = 0;
     int nChannels = details_.channelCount;
     bool firstPacketReceived = false;
+    // After a cmd_Start the NA500 first sends leftover packets from its previous
+    // stream (old counter and clock, possibly from an earlier session); its own
+    // counter then restarts at 0. Bounded so a missed reset cannot stall the stream.
+    constexpr int MAX_STALE_PACKETS = 128;
+    int staleToSkip = details_.amplifierType == AmplifierType::NA500 && weInitializedAmp_
+                          ? MAX_STALE_PACKETS : 0;
 
     // Sample rate change detection
     bool measuringNewRate = false;
@@ -1065,6 +1079,14 @@ void EGIAmpClient::readPacketFormat2() {
             for (int s = 0; s < nSamples && stream.good(); s++) {
                 PacketFormat2 packet{};
                 stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
+
+                if (staleToSkip > 0) {
+                    if (packet.packetCounter != 0) {
+                        --staleToSkip;
+                        continue;
+                    }
+                    staleToSkip = 0;
+                }
 
                 if (!streamer_.hasOutlet()) {
                     // Determine channel count and sensor from net code
@@ -1342,6 +1364,8 @@ void EGIAmpClient::readPacketFormat2() {
         emitStatus("Stream recovered. Resuming data reading.\n");
         lastPacketCounter = 0;
         firstPacketReceived = false;
+        staleToSkip = details_.amplifierType == AmplifierType::NA500 && weInitializedAmp_
+                          ? MAX_STALE_PACKETS : 0;
         measuringNewRate = false;
         rateCheckSampleCount = 0;
         lastTimeStamp_ = 0;
@@ -1519,7 +1543,8 @@ void EGIAmpClient::reQueryPhysioStatus() {
         auto& notifStream = connection_.notificationStream();
         const std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
-        for (int attempt = 0; attempt < 10; attempt++) {
+        const int attempts = details_.amplifierType == AmplifierType::NA500 ? 0 : 10;  // see startStreaming()
+        for (int attempt = 0; attempt < attempts; attempt++) {
             notifStream.clear();
             connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
             char notifBuffer[4096];

@@ -109,7 +109,7 @@ Bypasses the FPGA filter and samples directly at the requested rate. This provid
 - Reduced bandwidth (~1/4 of sample rate, e.g., 250 Hz at 1000 Hz sample rate)
 - Optimized for EEG-TMS and real-time BCI applications
 
-Available native rates: 500, 1000, 2000, 4000, 8000 Hz (NA400); 250, 500, 1000, 2000, 4000, 8000, 16000 Hz (NA500)
+Available native rates: 500, 1000, 2000, 4000, 8000 Hz (NA400); 250, 500, 1000, 2000, 4000, 8000 Hz (NA500)
 
 Use `--fast-recovery` (or a "Low Latency" dropdown entry) to select native mode for rates where the model offers both.
 
@@ -131,14 +131,21 @@ The NA500 rows are zero deliberately: Net Station 6 applies no anti-alias alignm
 
 ## Net Amps 500 (GES 500) Support
 
-NA500 support was verified against real hardware (firmware 0.4.9). Differences from the NA400 that this app handles automatically:
+NA500 support was verified against real hardware (firmware 0.4.9). The amplifier's protocol is documented, as observed on the wire, in [docs/NA500_AmpServer.md](docs/NA500_AmpServer.md).
+
+**Finding the amplifier**: the NA500 gets its address by DHCP and advertises itself over mDNS (service `_na500._tcp`), typically as `NA500-256ch-<serial>.local`. Pass that name instead of an IP, e.g. `--address NA500-256ch-0001.local`. This works out of the box on macOS and recent Windows 10/11; Linux needs Avahi with `nss-mdns`. To list amplifiers on the network, run `dns-sd -B _na500._tcp` (macOS/Windows with Bonjour) or `avahi-browse -r _na500._tcp` (Linux). With no DHCP server on the network the amplifier has no IPv4 address, and this app cannot reach it because its AmpServer is IPv4-only.
+
+Differences from the NA400 that this app handles automatically:
 
 - **Scaling**: 0.044703 µV/bit (±375 mV over 24 bits, matching the GES 500 datasheet and Net Station 6).
-- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 16000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz).
+- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 8000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz). 16000 Hz is not offered: the amplifier accepts it but delivers only about 8000 samples/s, and the missing samples leave no gap in its packet counter.
 - **Initialization**: the NA500 silently ignores commands sent while it is powering up (~10 s from cold), so the app waits for the power-on notification before configuring it.
-- **Data connection handling**: the NA500's AmpServer stops serving data to new listeners once any listener disconnects (until the amp restarts), so the app maintains one persistent data connection per session and never issues `cmd_StopListeningToAmp`.
+- **Data connection handling**: the NA500's AmpServer serves one data listener per session; once it disconnects, no new listener is served until the command connection closes and a new session starts. The app therefore maintains one persistent data connection per session and never issues `cmd_StopListeningToAmp` (which the NA500 never answers).
+- **Continuous reading**: the NA500 drops samples if its data port goes unread for a few seconds, so the app does not wait for a Physio16 status notification (the NA500 sends none).
+- **Stale packets**: after `cmd_Start` the NA500 first resends leftover packets from its previous stream before its counter restarts at 0; the app discards them.
+- **Clock**: the NA500 stamps packets with its own clock, which is not synchronized; the app sets it with `cmd_SetAmpTime` at power-on, as Net Station does.
 - **Single client**: while Net Station (or any other client) is linked to the NA500, this app's connections are accepted but not serviced — and vice versa. Unlink Net Station before using this app; concurrent monitoring is not possible on the NA500 (unlike the NA400).
-- **Recovery**: the NA500 emits no `ntn_AmpStarted` notification, so external-restart recovery uses data-port polling instead.
+- **Recovery**: the NA500 sends `ntn_AmpStarted` only in reply to `cmd_GetStartTime`, not when streaming starts, so external-restart recovery uses data-port polling instead.
 - **Robustness**: the NA500's embedded AmpServer (fw 0.4.9) can crash or stop responding after abrupt client disconnects; commands now time out after 10 s instead of hanging, and the GUI performs linking on a background thread so the UI never freezes. A crashed AmpServer requires power-cycling the amplifier.
 
 ## Timestamp Compensation
@@ -429,6 +436,14 @@ To use the mock server for development:
 > # or update ampserver_config.cfg to use 127.0.0.1 and run GUI
 
 The mock server generates synthetic sine waves (10-50 Hz) with noise for the EEG data, so you can also verify the LSL stream in downstream applications.
+
+The C++ mock (`MockAmpServer`, built with the project) also emulates other models. `MockAmpServer --amp-type NA500` reproduces the NA500's session-based AmpServer, including its quirks (see [docs/NA500_AmpServer.md](docs/NA500_AmpServer.md)); add `--net-code None` to emulate a unit with no net attached.
+
+`scripts/ampserver_conformance.py` records how an AmpServer behaves on the wire and diffs two recordings. The recording of a real NA500 is in `mock/conformance/`; to check the mock against it:
+
+> MockAmpServer --amp-type NA500 --net-code None &
+> python3 scripts/ampserver_conformance.py --host 127.0.0.1 --active -o mock.json
+> python3 scripts/ampserver_conformance.py --compare mock/conformance/na500_fw0.4.9.json mock.json
 
 # Known Issues
 
