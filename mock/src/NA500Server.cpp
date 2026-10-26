@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <iostream>
+#include <iterator>
 #include <set>
 
 namespace mock {
@@ -168,6 +170,7 @@ void NA500Server::session(const std::atomic<bool>& running) {
     dataAccept.join();
     // The DIN enable survives into the next session, as on the device.
     streaming_ = false;
+    bufferedReference_ = false;
     amp_->setPower(false);
     {
         std::lock_guard<std::mutex> lock(socketMutex_);
@@ -198,6 +201,7 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
     if (name == "cmd_SetPower") {
         if (value != 0 && value != 1) return {};
         amp_->setPower(on);
+        if (on) poweredOnAt_ = std::chrono::steady_clock::now();
         if (!on) streaming_ = false;
         pendingNotifications_.push_back(on ? "(notification ntn_AmpPowerOn 9 0 -1)"
                                            : "(notification ntn_AmpPowerOff 8 0 -1)");
@@ -210,6 +214,7 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
     }
     if (name == "cmd_Stop") {
         streaming_ = false;
+        bufferedReference_ = false;  // cmd_Stop switches the front end off
         std::this_thread::sleep_for(std::chrono::seconds(1));
         pendingNotifications_.push_back("(notification ntn_AmpStopped 11 0 -1)");
         return {OK};
@@ -285,7 +290,13 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
     else if (name == "cmd_SetCOMDriveSignal") amp_->setComDriveSignal(on);
     else if (name == "cmd_SetSubjectGround") amp_->setSubjectGround(on);
     else if (name == "cmd_SetDrivenCommon") amp_->setDrivenCommon(on);
-    else if (name == "cmd_SetBufferedReference") amp_->setBufferedReference(on);
+    else if (name == "cmd_SetBufferedReference") {
+        // The front end is still powering up for ~20 ms after cmd_SetPower 1
+        // and silently drops switch commands (the reply is still OK).
+        if (std::chrono::steady_clock::now() - poweredOnAt_ >= std::chrono::milliseconds(20)) {
+            bufferedReference_ = on;
+        }
+    }
     else if (name == "cmd_SetOscillatorGate") amp_->setOscillatorGate(on);
     else if (name == "cmd_SetWaveShape") amp_->setWaveShape(static_cast<WaveShape>(value));
     else if (name == "cmd_SetCalibrationSignalFreq") amp_->setCalibrationSignalFreq(static_cast<int>(value));
@@ -331,6 +342,7 @@ void NA500Server::streamLoop() {
             packet.timeStamp = static_cast<uint64_t>(streamStartUs_ + framesSinceStart++ * stepUs);
             packet.netCode = static_cast<uint8_t>(amp_->state().netCode);
             if (!dinEnabled_) packet.digitalInputs = 0;
+            if (!bufferedReference_) std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
             packet.reserved[0] = 3;  // idle level of the event inputs on the recorded unit
             std::memcpy(payload.data() + fill * PACKET_FORMAT2_SIZE, &packet, PACKET_FORMAT2_SIZE);
             if (++fill < SAMPLES_PER_BLOCK) continue;

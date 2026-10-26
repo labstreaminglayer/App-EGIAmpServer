@@ -238,11 +238,12 @@
    "reserved0_values": [
     3
    ],
-   "~stale_packets_before_reset": 7,
-   "~packets": 616,
-   "~rate_by_host_clock": 236,
+   "eeg_railed": 1.0,
+   "~stale_packets_before_reset": 51,
+   "~packets": 664,
+   "~rate_by_host_clock": 254,
    "~rate_by_timestamps": 250,
-   "~amp_clock_minus_host_s": 0.2
+   "~amp_clock_minus_host_s": 0.1
   },
   "GetStartTime": {
    "replies": [
@@ -275,7 +276,7 @@
    "(notification ntn_AmpStopped 11 0 -1)"
   ],
   "restart_counter_starts_at_0": true,
-  "~restart_stale_packets": 0
+  "~restart_stale_packets": 5
  },
  "stream_decimated_1000": {
   "SetDecimatedRate": [
@@ -310,11 +311,12 @@
    "reserved0_values": [
     3
    ],
-   "~stale_packets_before_reset": 3,
-   "~packets": 2464,
-   "~rate_by_host_clock": 940,
+   "eeg_railed": 1.0,
+   "~stale_packets_before_reset": 7,
+   "~packets": 2472,
+   "~rate_by_host_clock": 943,
    "~rate_by_timestamps": 1000,
-   "~amp_clock_minus_host_s": 0.3
+   "~amp_clock_minus_host_s": 0.1
   },
   "GetStartTime": {
    "replies": [
@@ -347,7 +349,7 @@
    "(notification ntn_AmpStopped 11 0 -1)"
   ],
   "restart_counter_starts_at_0": true,
-  "~restart_stale_packets": 0
+  "~restart_stale_packets": 1
  },
  "stream_native_16000": {
   "SetNativeRate": [
@@ -382,11 +384,12 @@
    "reserved0_values": [
     3
    ],
-   "~stale_packets_before_reset": 3,
-   "~packets": 19640,
-   "~rate_by_host_clock": 7533,
+   "eeg_railed": 1.0,
+   "~stale_packets_before_reset": 2,
+   "~packets": 19704,
+   "~rate_by_host_clock": 7529,
    "~rate_by_timestamps": 16129,
-   "~amp_clock_minus_host_s": -1.0
+   "~amp_clock_minus_host_s": -1.1
   },
   "GetStartTime": {
    "replies": [
@@ -419,7 +422,7 @@
    "(notification ntn_AmpStopped 11 0 -1)"
   ],
   "restart_counter_starts_at_0": true,
-  "~restart_stale_packets": 4
+  "~restart_stale_packets": 0
  },
  "data_reconnect": {
   "packets_before_drop": true,
@@ -431,6 +434,12 @@
  "stalled_reader": {
   "samples_lost": true,
   "~largest_counter_jump": 4481
+ },
+ "front_end": {
+  "railed_when_set_right_after_power_on": 1.0,
+  "railed_after_Start": 1.0,
+  "railed_after_SetBufferedReference_1": 0.0,
+  "railed_after_Stop_Start": 1.0
  },
  "after_session_end": {
   "data_flows_in_new_session_before_Start": false,
