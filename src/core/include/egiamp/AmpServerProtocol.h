@@ -151,8 +151,21 @@ inline float getScalingFactor(AmplifierType type) {
 // Rate/mode capabilities per model, verified against hardware where possible.
 // NA400 (measured): decimated 250/500/1000; native 500/1000/2000/4000/8000.
 // NA500 (measured, fw 0.4.9): decimated 250/500/1000/2000; native
-// 250/500/1000/2000/4000/8000/16000. Unlike the NA400, the NA500 never sends
+// 250/500/1000/2000/4000. It accepts 8000 and 16000 but delivers at most ~7995
+// samples/s, silently dropping the rest, so neither is offered. Unlike the NA400, the NA500 never sends
 // duplicate packets at sub-1000 Hz decimated rates.
+// Digitization-to-client latency (ms) subtracted from every timestamp when the
+// config does not set one, a little under the value measured with
+// scripts/audio_latency_test so a sample is never back-dated before its event.
+// NA400: ~5 ms. NA500: ~1.0 ms + 1.1 sample periods (5.4 ms at 250 Hz down to
+// 1.0 ms at 8 kHz), so its default follows the rate.
+inline double defaultSystemDelayMs(AmplifierType type, int sampleRate) {
+    if (type == AmplifierType::NA500 && sampleRate > 0) {
+        return 0.8 + 1000.0 / sampleRate;
+    }
+    return 4.5;
+}
+
 inline int maxDecimatedRate(AmplifierType type) {
     return type == AmplifierType::NA500 ? 2000 : 1000;
 }
@@ -190,7 +203,7 @@ inline bool supportsSampleRate(AmplifierType type, int sampleRate, bool fastReco
                           : contains({250, 500, 1000});
         case AmplifierType::NA500:
             // Verified on hardware (fw 0.4.9)
-            return native ? contains({250, 500, 1000, 2000, 4000, 8000, 16000})
+            return native ? contains({250, 500, 1000, 2000, 4000})
                           : contains({250, 500, 1000, 2000});
         default:
             return true;

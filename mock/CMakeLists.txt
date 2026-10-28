@@ -24,6 +24,7 @@ add_executable(MockAmpServer
     src/NotificationHandler.cpp
     src/DataStreamGenerator.cpp
     src/ECIHandler.cpp
+    src/NA500Server.cpp
 )
 
 target_include_directories(MockAmpServer PRIVATE

@@ -424,9 +424,11 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     // continuous timestamp offset, so nearest-sample is the closest the mock's
     // sample grid can get). The physio lead floors, matching the device's own
     // whole-sample quantization (32 ms @ 250/500, 33 ms @ 1000).
-    const int eegDelaySamples = state_.decimated
+    // The NA500 has neither skew: its decimated and native rates stream identically.
+    const bool skewed = state_.decimated && state_.amplifierType != AmplifierType::NA500;
+    const int eegDelaySamples = skewed
         ? (filterDelayMs(sampleRate) * sampleRate + 500) / 1000 : 0;
-    const int physioLeadSamples = state_.decimated
+    const int physioLeadSamples = skewed
         ? PHYSIO_LEAD_MS * sampleRate / 1000 : 0;
     int physioDelaySamples = eegDelaySamples - physioLeadSamples;
     if (physioDelaySamples < 0) physioDelaySamples = 0;

@@ -456,6 +456,11 @@ bool EGIAmpClient::initAmplifier() {
     // would add an unverified dependency on its notification timing.
     if (details_.amplifierType == AmplifierType::NA500) {
         connection_.sendCommand("cmd_ReceiveNotifications", ampId, 0, "0");
+        // The NA500 stamps packets with its own clock, which nothing else keeps
+        // in sync; set it to UTC epoch us at power-on, as Net Station does.
+        const auto nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        connection_.sendCommand("cmd_SetAmpTime", ampId, 0, std::to_string(nowUs));
         connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
         emitStatus("Waiting for amplifier power-on...\n");
         if (waitForAmpPowerOn(30)) {
@@ -463,6 +468,9 @@ bool EGIAmpClient::initAmplifier() {
         } else {
             emitStatus("Warning: no power-on confirmation within 30 s, continuing.\n");
         }
+        // Front-end switch commands sent within ~20 ms of power-on are silently
+        // lost (measured), which leaves the EEG at full scale. Let it settle.
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     // Set sample rate. Native rates have no FPGA anti-alias filter (lower
@@ -500,12 +508,26 @@ bool EGIAmpClient::initAmplifier() {
     } else {
         // Set default acquisition state when not in impedance mode
         connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
+        enableNA500FrontEnd();
     }
 
     // Start
     connection_.sendCommand("cmd_Start", ampId, 0, "0");
 
     return true;
+}
+
+void EGIAmpClient::enableNA500FrontEnd() {
+    // The NA500's EEG sits at negative full scale until its buffered reference
+    // is switched on, and every cmd_Stop switches it off again.
+    if (details_.amplifierType == AmplifierType::NA500) {
+        connection_.sendCommand("cmd_SetBufferedReference", config_.amplifierId, 0, "1");
+        // Physio gains persist on the amp across sessions; pin them to 12, the
+        // power-on default, which the physio scaling assumes (same as the EEG's).
+        for (int ch = 0; ch < 16; ch++) {
+            connection_.sendCommand("cmd_SetPIBChannelGain", config_.amplifierId, ch, "12");
+        }
+    }
 }
 
 void EGIAmpClient::haltAmplifier() {
@@ -637,6 +659,9 @@ bool EGIAmpClient::startStreaming() {
                 }
             }
 
+            if (!config_.impedance) {
+                enableNA500FrontEnd();
+            }
             connection_.sendCommand("cmd_Start", config_.amplifierId, 0, "0");
             weInitializedAmp_ = true;
         } else {
@@ -691,7 +716,10 @@ bool EGIAmpClient::startStreaming() {
         auto& notifStream = connection_.notificationStream();
         const std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
-        for (int attempt = 0; attempt < 10; attempt++) {
+        // The NA500 never sends ntn_PhysioConnectionStatus, and leaving its data
+        // port unread for these 5 s makes it silently drop ~4 s of samples.
+        const int attempts = details_.amplifierType == AmplifierType::NA500 ? 0 : 10;
+        for (int attempt = 0; attempt < attempts; attempt++) {
             notifStream.clear();  // Reset stream state after any prior timeout
             connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
             char notifBuffer[4096];
@@ -714,7 +742,12 @@ bool EGIAmpClient::startStreaming() {
             // Not the physio notification, try again
         }
 
-        if (physioConnectionStatus_ == 0) {
+        if (details_.amplifierType == AmplifierType::NA500) {
+            // The NA500 never reports a Physio16; its 16 physio inputs are always
+            // in the data stream, so always stream them.
+            physioConnectionStatus_ = 1;
+            emitStatus("Physio16: streaming the NA500's 16 physio channels\n");
+        } else if (physioConnectionStatus_ == 0) {
             emitStatus("Physio16: no device detected\n");
         }
     } catch (...) {
@@ -1021,6 +1054,12 @@ void EGIAmpClient::readPacketFormat2() {
     uint64_t lastPacketCounter = 0;
     int nChannels = details_.channelCount;
     bool firstPacketReceived = false;
+    // After a cmd_Start the NA500 first sends leftover packets from its previous
+    // stream (old counter and clock, possibly from an earlier session); its own
+    // counter then restarts at 0. Bounded so a missed reset cannot stall the stream.
+    constexpr int MAX_STALE_PACKETS = 128;
+    int staleToSkip = details_.amplifierType == AmplifierType::NA500 && weInitializedAmp_
+                          ? MAX_STALE_PACKETS : 0;
 
     // Sample rate change detection
     bool measuringNewRate = false;
@@ -1046,7 +1085,9 @@ void EGIAmpClient::readPacketFormat2() {
             // timestamp reflects digitization time, not arrival. This flows to
             // both the EEG/physio chunk and the DIN events (derived below), and
             // is on top of the decimated-only filter offset applied in pushChunk.
-            double batchTimestamp = lsl::local_clock() - config_.systemDelayMs / 1000.0;
+            double batchTimestamp = lsl::local_clock() -
+                config_.systemDelayMs.value_or(
+                    defaultSystemDelayMs(details_.amplifierType, config_.sampleRate)) / 1000.0;
 
             header.ampID = big_to_native(header.ampID);
             header.length = big_to_native(header.length);
@@ -1065,6 +1106,14 @@ void EGIAmpClient::readPacketFormat2() {
             for (int s = 0; s < nSamples && stream.good(); s++) {
                 PacketFormat2 packet{};
                 stream.read(reinterpret_cast<char*>(&packet), sizeof(PacketFormat2));
+
+                if (staleToSkip > 0) {
+                    if (packet.packetCounter != 0) {
+                        --staleToSkip;
+                        continue;
+                    }
+                    staleToSkip = 0;
+                }
 
                 if (!streamer_.hasOutlet()) {
                     // Determine channel count and sensor from net code
@@ -1239,10 +1288,14 @@ void EGIAmpClient::readPacketFormat2() {
                 // counts so the same delay serves both the native and float paths.
                 int32_t physioRaw[32];
                 int physioN = 0;
-                if (physioConnectionStatus_ & 0x01) {
+                if (details_.amplifierType == AmplifierType::NA500) {
+                    // NA500: physio 1-8 in pib1_Data[0-7], 9-16 in pib2_Data[0-7].
+                    for (int ch = 0; ch < 8; ch++) physioRaw[physioN++] = packet.pib1_Data[ch];
+                    for (int ch = 0; ch < 8; ch++) physioRaw[physioN++] = packet.pib2_Data[ch];
+                } else if (physioConnectionStatus_ & 0x01) {
                     for (int ch = 0; ch < 16; ch++) physioRaw[physioN++] = packet.pib1_Data[ch];
                 }
-                if (physioConnectionStatus_ & 0x02) {
+                if (details_.amplifierType != AmplifierType::NA500 && (physioConnectionStatus_ & 0x02)) {
                     for (int ch = 0; ch < 16; ch++) physioRaw[physioN++] = packet.pib2_Data[ch];
                 }
                 physioDelay_.process(physioRaw, physioN);
@@ -1276,8 +1329,11 @@ void EGIAmpClient::readPacketFormat2() {
                     // PIB channels 1-8 use negative scaling, 9-16 use positive
                     // scaling; the pattern repeats for each 16-channel port.
                     for (int i = 0; i < physioN; i++) {
-                        const float scale = (i % 16 < 8) ? PHYSIO_SCALING_1_8
-                                                         : PHYSIO_SCALING_9_16;
+                        // NA500 physio runs at the EEG's gain by default (12).
+                        const float scale = details_.amplifierType == AmplifierType::NA500
+                                                ? details_.scalingFactor
+                                                : (i % 16 < 8) ? PHYSIO_SCALING_1_8
+                                                               : PHYSIO_SCALING_9_16;
                         eegSamples.push_back(static_cast<float>(physioRaw[i]) * scale);
                     }
 
@@ -1342,6 +1398,8 @@ void EGIAmpClient::readPacketFormat2() {
         emitStatus("Stream recovered. Resuming data reading.\n");
         lastPacketCounter = 0;
         firstPacketReceived = false;
+        staleToSkip = details_.amplifierType == AmplifierType::NA500 && weInitializedAmp_
+                          ? MAX_STALE_PACKETS : 0;
         measuringNewRate = false;
         rateCheckSampleCount = 0;
         lastTimeStamp_ = 0;
@@ -1519,7 +1577,8 @@ void EGIAmpClient::reQueryPhysioStatus() {
         auto& notifStream = connection_.notificationStream();
         const std::regex statusRegex(R"(ntn_PhysioConnectionStatus\s+\d+\s+\d+\s+\+(\d+))");
 
-        for (int attempt = 0; attempt < 10; attempt++) {
+        const int attempts = details_.amplifierType == AmplifierType::NA500 ? 0 : 10;  // see startStreaming()
+        for (int attempt = 0; attempt < attempts; attempt++) {
             notifStream.clear();
             connection_.setNotificationStreamTimeout(std::chrono::milliseconds(500));
             char notifBuffer[4096];

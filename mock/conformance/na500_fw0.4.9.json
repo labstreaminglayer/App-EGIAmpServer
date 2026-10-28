@@ -1,0 +1,451 @@
+{
+ "queries": {
+  "cmd_NumberOfAmps": {
+   "replies": [
+    "(sendCommand_return (status complete) (number_of_amps 1))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetAmpDetails": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_details (serial_number <v>) (amp_type NA500) (legacy_board false) (packet_format 2) (system_version 0.4.9) (fpga_version 0.6.1.f0) (pcb_version 4.1.0.0) (number_of_channels 256) (feature_flags 0))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetAmpStatus": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetBatteryData": {
+   "replies": [
+    "(sendCommand_return (status complete) (battery_details (time_remaining <v>) (master <v>) (slave1 <v>) (slave2 <v>) (slave3 <v>) (slave4 <v>))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetBoardStatus": {
+   "replies": [
+    "(sendCommand_return (status complete) (status_details (ambient_temp <v>) (lpd_temp <v>) (fpd_temp <v>) (pl_temp <v>))))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_NumberOfActiveAmps": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetPhysioConnectionStatus": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetCurrentTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (current_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetCurrentDrift": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_GetNetRecordingTime": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_ReceiveNotifications": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_StopReceivingNotifications": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "cmd_None": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "notifications": []
+ },
+ "framing": {
+  "two_in_one_segment": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "double_newline": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "extra_space": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "unknown_after_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "split_across_segments": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "lowercase_setPIBChannelGain": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ]
+ },
+ "odd_replies": {
+  "ListenToAmp_on_cmd_port": [],
+  "ListenToAmp_on_cmd_port_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "StopListeningToAmp_on_cmd_port": [],
+  "StopListeningToAmp_on_cmd_port_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "SetDecimatedRate_300": [],
+  "SetDecimatedRate_300_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "SetNativeRate_300": [],
+  "SetNativeRate_300_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "SetPower_2": [],
+  "SetPower_2_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "TurnAllZeroOhms_0": [
+   "(sendCommand_return (status complete))",
+   "(sendCommand_return (status complete))"
+  ],
+  "TurnAllZeroOhms_0_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ],
+  "SetMRIPulseInfo_0": [
+   "(sendCommand_return (status complete))",
+   "(sendCommand_return (status complete))"
+  ],
+  "SetMRIPulseInfo_0_then_NumberOfAmps": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ]
+ },
+ "second_client": {
+  "second_client_reply": null,
+  "second_client_connects": true,
+  "first_client_still_served": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ]
+ },
+ "recognized": {
+  "cmd_Reset": true,
+  "cmd_DefaultAcquisitionState": true,
+  "cmd_DefaultSignalGeneration": true,
+  "cmd_Exit": true,
+  "cmd_TurnAll10KOhms": true,
+  "cmd_TurnChannel10KOhms": true,
+  "cmd_SetCOM10KOhms": true,
+  "cmd_TurnAllDriveSignals": true,
+  "cmd_TurnChannelDriveSignals": true,
+  "cmd_SetSubjectGround": true,
+  "cmd_SetCurrentSource": true,
+  "cmd_SetCalibrationSignalFreq": true,
+  "cmd_SetBufferedReference": true,
+  "cmd_SetOscillatorGate": true,
+  "cmd_SetReference10KOhms": true,
+  "cmd_SetReferenceDriveSignal": true,
+  "cmd_SetWaveShape": true,
+  "cmd_SetDrivenCommon": true,
+  "cmd_SetCalibrationSignalAmplitude": true,
+  "cmd_SetAnalogOutput": true,
+  "cmd_SetDigitalOutputData": true,
+  "cmd_SetDigitalInOutDirection": true,
+  "cmd_GetStartTime": true,
+  "cmd_SetPIBChannelGain": true,
+  "cmd_TurnChannelZeroOhms": true,
+  "cmd_SetPhoticStimSequence": true,
+  "cmd_SetSpo2Enable": true,
+  "cmd_SetDinEnable": true,
+  "cmd_SetTestMode": true,
+  "cmd_SetOpticalClockMode": true,
+  "cmd_SetRecordingState": true,
+  "cmd_SetBncInMode": true,
+  "cmd_SetBncOutMode": true,
+  "cmd_SetBncOutPulseWidth": true,
+  "cmd_SetBlankingPulseWidth": true,
+  "cmd_SetTriggerBncManualOut": true,
+  "cmd_SetQuietMode": true,
+  "cmd_SetNetRecordingTime": false,
+  "cmd_SetFilterAndDecimate": false,
+  "cmd_GTENGetStatus": false
+ },
+ "power": {
+  "SetPower_1": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "SetPower_1_notifications": [
+   "(notification ntn_AmpPowerOn 9 0 -1)"
+  ],
+  "SetPower_0": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "SetPower_0_notifications": [
+   "(notification ntn_AmpPowerOff 8 0 -1)"
+  ]
+ },
+ "stream_decimated_250": {
+  "SetDecimatedRate": [
+   "(sendCommand_return (status complete))"
+  ],
+  "Start": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "Start_notifications": [],
+  "stream_without_ListenToAmp": {
+   "header_amp_ids": [
+    0
+   ],
+   "packets_per_block": [
+    8
+   ],
+   "payload_multiple_of_1264": true,
+   "counter_starts_at_0": true,
+   "counter_step_set": [
+    1
+   ],
+   "timestamp_step_us_top": [
+    4000
+   ],
+   "net_codes": [
+    255
+   ],
+   "din_most_common": "0xffff",
+   "reserved0_values": [
+    3
+   ],
+   "eeg_railed": 1.0,
+   "~stale_packets_before_reset": 51,
+   "~packets": 664,
+   "~rate_by_host_clock": 254,
+   "~rate_by_timestamps": 250,
+   "~amp_clock_minus_host_s": 0.1
+  },
+  "GetStartTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (start_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "GetCurrentTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (current_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "SetRecordingState_0": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (start_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "GetStartTime_notifications": [
+   "(notification ntn_AmpStarted 10 0 -1)"
+  ],
+  "Stop": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 1.0
+  },
+  "Stop_notifications": [
+   "(notification ntn_AmpStopped 11 0 -1)"
+  ],
+  "restart_counter_starts_at_0": true,
+  "~restart_stale_packets": 5
+ },
+ "stream_decimated_1000": {
+  "SetDecimatedRate": [
+   "(sendCommand_return (status complete))"
+  ],
+  "Start": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "Start_notifications": [],
+  "stream_without_ListenToAmp": {
+   "header_amp_ids": [
+    0
+   ],
+   "packets_per_block": [
+    8
+   ],
+   "payload_multiple_of_1264": true,
+   "counter_starts_at_0": true,
+   "counter_step_set": [
+    1
+   ],
+   "timestamp_step_us_top": [
+    1000
+   ],
+   "net_codes": [
+    255
+   ],
+   "din_most_common": "0xffff",
+   "reserved0_values": [
+    3
+   ],
+   "eeg_railed": 1.0,
+   "~stale_packets_before_reset": 7,
+   "~packets": 2472,
+   "~rate_by_host_clock": 943,
+   "~rate_by_timestamps": 1000,
+   "~amp_clock_minus_host_s": 0.1
+  },
+  "GetStartTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (start_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "GetCurrentTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (current_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "SetRecordingState_0": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (start_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "GetStartTime_notifications": [
+   "(notification ntn_AmpStarted 10 0 -1)"
+  ],
+  "Stop": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 1.0
+  },
+  "Stop_notifications": [
+   "(notification ntn_AmpStopped 11 0 -1)"
+  ],
+  "restart_counter_starts_at_0": true,
+  "~restart_stale_packets": 1
+ },
+ "stream_native_16000": {
+  "SetNativeRate": [
+   "(sendCommand_return (status complete))"
+  ],
+  "Start": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 0.0
+  },
+  "Start_notifications": [],
+  "stream_without_ListenToAmp": {
+   "header_amp_ids": [
+    0
+   ],
+   "packets_per_block": [
+    8
+   ],
+   "payload_multiple_of_1264": true,
+   "counter_starts_at_0": true,
+   "counter_step_set": [
+    1
+   ],
+   "timestamp_step_us_top": [
+    62
+   ],
+   "net_codes": [
+    255
+   ],
+   "din_most_common": "0xffff",
+   "reserved0_values": [
+    3
+   ],
+   "eeg_railed": 1.0,
+   "~stale_packets_before_reset": 2,
+   "~packets": 19704,
+   "~rate_by_host_clock": 7529,
+   "~rate_by_timestamps": 16129,
+   "~amp_clock_minus_host_s": -1.1
+  },
+  "GetStartTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (start_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "GetCurrentTime": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (current_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "SetRecordingState_0": {
+   "replies": [
+    "(sendCommand_return (status complete) (amp_status_info (start_time <v>)))"
+   ],
+   "~latency_s": 0.0
+  },
+  "GetStartTime_notifications": [
+   "(notification ntn_AmpStarted 10 0 -1)"
+  ],
+  "Stop": {
+   "replies": [
+    "(sendCommand_return (status complete))"
+   ],
+   "~latency_s": 1.0
+  },
+  "Stop_notifications": [
+   "(notification ntn_AmpStopped 11 0 -1)"
+  ],
+  "restart_counter_starts_at_0": true,
+  "~restart_stale_packets": 0
+ },
+ "data_reconnect": {
+  "packets_before_drop": true,
+  "packets_after_reconnect": false,
+  "cmd_still_served": [
+   "(sendCommand_return (status complete) (number_of_amps 1))"
+  ]
+ },
+ "stalled_reader": {
+  "samples_lost": true,
+  "~largest_counter_jump": 4481
+ },
+ "front_end": {
+  "railed_when_set_right_after_power_on": 1.0,
+  "railed_after_Start": 1.0,
+  "railed_after_SetBufferedReference_1": 0.0,
+  "railed_after_Stop_Start": 1.0
+ },
+ "after_session_end": {
+  "data_flows_in_new_session_before_Start": false,
+  "stream_after_Start_without_SetPower": {
+   "packets": 0,
+   "blocks": 0
+  }
+ }
+}
