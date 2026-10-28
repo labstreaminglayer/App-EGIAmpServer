@@ -66,6 +66,15 @@ data on 9879). Only the differences that matter to a client are listed.
 - Front-end switch commands sent within about 20 ms of the `cmd_SetPower 1` reply are lost, although
   they are acknowledged. Wait a moment after power-on before configuring.
 
+## Physio
+
+- The 16 physio inputs arrive in the first 8 entries of each of the packet's two physio arrays (physio
+  1-8, then 9-16); the other entries are 0. They are sampled with the EEG: no relative delay at any rate
+  or mode. There is no notification or reply that reports whether a Physio16 is attached.
+- `cmd_SetPIBChannelGain <channel 0-15> <gain>` sets one input's gain (1, 2, 4, 6, 8, 12 or 24). At the
+  power-on default of 12 the physio scale equals the EEG's (0.0447 µV per count); at gain 1 it is 12
+  times coarser. Gains **persist across sessions**, so a client should set them rather than assume them.
+
 ## Notifications
 
 Only four are sent, each after the reply to the command that causes it:
