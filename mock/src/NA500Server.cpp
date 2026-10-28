@@ -344,6 +344,9 @@ void NA500Server::streamLoop() {
             if (!dinEnabled_) packet.digitalInputs = 0;
             if (!bufferedReference_) std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
             packet.reserved[0] = 3;  // idle level of the event inputs on the recorded unit
+            // Only the first 8 slots of each physio array carry data on the NA500.
+            std::fill(std::begin(packet.pib1_Data) + 8, std::end(packet.pib1_Data), 0);
+            std::fill(std::begin(packet.pib2_Data) + 8, std::end(packet.pib2_Data), 0);
             std::memcpy(payload.data() + fill * PACKET_FORMAT2_SIZE, &packet, PACKET_FORMAT2_SIZE);
             if (++fill < SAMPLES_PER_BLOCK) continue;
             fill = 0;

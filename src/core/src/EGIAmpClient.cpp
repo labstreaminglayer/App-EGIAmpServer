@@ -522,6 +522,11 @@ void EGIAmpClient::enableNA500FrontEnd() {
     // is switched on, and every cmd_Stop switches it off again.
     if (details_.amplifierType == AmplifierType::NA500) {
         connection_.sendCommand("cmd_SetBufferedReference", config_.amplifierId, 0, "1");
+        // Physio gains persist on the amp across sessions; pin them to 12, the
+        // power-on default, which the physio scaling assumes (same as the EEG's).
+        for (int ch = 0; ch < 16; ch++) {
+            connection_.sendCommand("cmd_SetPIBChannelGain", config_.amplifierId, ch, "12");
+        }
     }
 }
 
@@ -737,7 +742,12 @@ bool EGIAmpClient::startStreaming() {
             // Not the physio notification, try again
         }
 
-        if (physioConnectionStatus_ == 0) {
+        if (details_.amplifierType == AmplifierType::NA500) {
+            // The NA500 never reports a Physio16; its 16 physio inputs are always
+            // in the data stream, so always stream them.
+            physioConnectionStatus_ = 1;
+            emitStatus("Physio16: streaming the NA500's 16 physio channels\n");
+        } else if (physioConnectionStatus_ == 0) {
             emitStatus("Physio16: no device detected\n");
         }
     } catch (...) {
@@ -1278,10 +1288,14 @@ void EGIAmpClient::readPacketFormat2() {
                 // counts so the same delay serves both the native and float paths.
                 int32_t physioRaw[32];
                 int physioN = 0;
-                if (physioConnectionStatus_ & 0x01) {
+                if (details_.amplifierType == AmplifierType::NA500) {
+                    // NA500: physio 1-8 in pib1_Data[0-7], 9-16 in pib2_Data[0-7].
+                    for (int ch = 0; ch < 8; ch++) physioRaw[physioN++] = packet.pib1_Data[ch];
+                    for (int ch = 0; ch < 8; ch++) physioRaw[physioN++] = packet.pib2_Data[ch];
+                } else if (physioConnectionStatus_ & 0x01) {
                     for (int ch = 0; ch < 16; ch++) physioRaw[physioN++] = packet.pib1_Data[ch];
                 }
-                if (physioConnectionStatus_ & 0x02) {
+                if (details_.amplifierType != AmplifierType::NA500 && (physioConnectionStatus_ & 0x02)) {
                     for (int ch = 0; ch < 16; ch++) physioRaw[physioN++] = packet.pib2_Data[ch];
                 }
                 physioDelay_.process(physioRaw, physioN);
@@ -1315,8 +1329,11 @@ void EGIAmpClient::readPacketFormat2() {
                     // PIB channels 1-8 use negative scaling, 9-16 use positive
                     // scaling; the pattern repeats for each 16-channel port.
                     for (int i = 0; i < physioN; i++) {
-                        const float scale = (i % 16 < 8) ? PHYSIO_SCALING_1_8
-                                                         : PHYSIO_SCALING_9_16;
+                        // NA500 physio runs at the EEG's gain by default (12).
+                        const float scale = details_.amplifierType == AmplifierType::NA500
+                                                ? details_.scalingFactor
+                                                : (i % 16 < 8) ? PHYSIO_SCALING_1_8
+                                                               : PHYSIO_SCALING_9_16;
                         eegSamples.push_back(static_cast<float>(physioRaw[i]) * scale);
                     }
 
