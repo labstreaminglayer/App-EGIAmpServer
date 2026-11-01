@@ -133,7 +133,14 @@ The NA500 rows are zero deliberately: Net Station 6 applies no anti-alias alignm
 
 NA500 support was verified against real hardware (firmware 0.4.9). The amplifier's protocol is documented, as observed on the wire, in [docs/NA500_AmpServer.md](docs/NA500_AmpServer.md).
 
-**Finding the amplifier**: the NA500 gets its address by DHCP and advertises itself over mDNS (service `_na500._tcp`), typically as `NA500-256ch-<serial>.local`. Pass that name instead of an IP, e.g. `--address NA500-256ch-0001.local`. This works out of the box on macOS and recent Windows 10/11; Linux needs Avahi with `nss-mdns`. To list amplifiers on the network, run `dns-sd -B _na500._tcp` (macOS/Windows with Bonjour) or `avahi-browse -r _na500._tcp` (Linux). With no DHCP server on the network the amplifier has no IPv4 address, and this app cannot reach it because its AmpServer is IPv4-only.
+**Finding the amplifier**: the NA500 gets its address by DHCP and advertises itself over mDNS (service `_na500._tcp`), typically as `NA500-256ch-<serial>.local`. Pass that name instead of an IP, e.g. `--address NA500-256ch-0001.local`. This works out of the box on macOS and recent Windows 10/11; Linux needs Avahi with `nss-mdns`. To list amplifiers on the network, run `dns-sd -B _na500._tcp` (macOS/Windows with Bonjour) or `avahi-browse -r _na500._tcp` (Linux). With no DHCP server on the network the amplifier has no IPv4 address, and this app cannot reach it because its AmpServer is IPv4-only. When the amplifier is cabled directly to this computer (or to a switch with no DHCP server), give the computer's adapter a static address and serve the amplifier a lease with [dnsmasq](https://thekelleys.org.uk/dnsmasq/doc.html) (`brew install dnsmasq` / `apt install dnsmasq`). For example, with the adapter `en10` set to 10.10.10.61/24:
+
+```bash
+sudo dnsmasq -d --port=0 --interface=en10 --bind-interfaces \
+     --dhcp-range=10.10.10.62,10.10.10.62,255.255.255.0,12h
+```
+
+`--port=0` disables dnsmasq's DNS server, so it only hands out the one address; `-d` keeps it in the foreground (Ctrl+C stops it). The amplifier picks the lease up within a minute, without a restart, and it must be running whenever the amplifier powers up.
 
 Differences from the NA400 that this app handles automatically:
 
