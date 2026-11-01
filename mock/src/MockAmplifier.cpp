@@ -463,7 +463,8 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
 
     // Ideal signal amplitude in microvolts for impedance mode
     // This matches what a 0-ohm electrode would produce
-    constexpr double IDEAL_SIGNAL_UV = 100.0;
+    // The NA500 drives ~5000 uV p-p (its DAC at full scale); 100 uV elsewhere.
+    const double IDEAL_SIGNAL_UV = state_.amplifierType == AmplifierType::NA500 ? 2500.0 : 100.0;
     constexpr double REFERENCE_RESISTOR_KOHMS = 10.0;
 
     for (int ch = 0; ch < 256; ++ch) {
@@ -472,8 +473,10 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
         double noise = (rand() % 1000 - 500) / 500.0 * 2.0;  // ~2 uV noise
 
         // Check channel state for impedance measurement
-        bool channelDriving = state_.channelDriveSignals[ch] || state_.allDriveSignals;
-        bool channel10K = state_.channel10KOhms[ch] || state_.all10KOhms;
+        // The setAll* calls set every per-channel flag, so the per-channel flags
+        // alone are current (OR-ing in the "all" flag would ignore per-channel changes).
+        bool channelDriving = state_.channelDriveSignals[ch];
+        bool channel10K = state_.channel10KOhms[ch];
 
         if (impedanceMode) {
             // Use calibration signal frequency

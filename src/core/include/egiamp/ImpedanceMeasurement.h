@@ -51,6 +51,7 @@ public:
     void setSampleRate(int rate);
     void setChannelCount(int count) { channelCount_ = count; }
     void setScalingFactor(float factor) { scalingFactor_ = factor; }
+    void setNA500(bool na500) { na500_ = na500; }  // NA500 drive level and REF/COM sequence
     void setNetSize(int netSize);
 
     // Override the ideal signal for all channels (disables per-channel calibration)
@@ -130,6 +131,7 @@ private:
     int sampleRate_ = 1000;
     int channelCount_ = 256;
     float scalingFactor_ = 0.0f;
+    bool na500_ = false;
     float idealSignal_ = 0.0f;  // 0 = use calibrated or DEFAULT_IDEAL_SIGNAL
     float meanIdealSignal_ = 0.0f;  // Mean across all normal channels from calibration
 

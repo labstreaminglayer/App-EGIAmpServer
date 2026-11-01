@@ -310,6 +310,16 @@ cmd_TurnChannelDriveSignals(N, 1)  - Turn ON drive signal (reset)
 cmd_TurnChannel10KOhms(N, 0)       - Turn OFF 10K resistor (reset)
 ```
 
+### Net Amps 500
+
+The NA500 runs the same algorithm with these differences, handled automatically:
+- **Drive level**: calibration amplitude 1023 (its DAC is 10-bit), which gives ~5000 µV p-p on every channel. The app uses Net Station's fixed 5000 µV ideal signal rather than self-calibrating, which catches a switching transient on this amplifier.
+- **Oscillator last**: the NA500 latches amplitude and frequency when the oscillator turns on, so the app switches it on after setting them.
+- **Reference**: measured in the NA500's COM/REF measurement mode (`cmd_SetCOMAndRefForMeasurement`), with ~1.2 s settling on each side; the EEG reads 0 during that step.
+- **Leaving impedance mode**: `cmd_DefaultAcquisitionState` does nothing on the NA500, so the app restores the acquisition state explicitly.
+
+Verified on a GES 500 with a test jig that ties all inputs together (all channels ~0 kΩ, reference ~0.5 kΩ); absolute accuracy against real electrodes has not been checked.
+
 ### Limitations and Notes
 
 - **Tiling-based scanning**: When a tiling layout is available for the detected net (32/64/128/256 HydroCel GSN nets), channels are measured in groups (~5-6 collections per full scan) rather than one at a time — no flag required, it engages automatically. A full 256-channel scan drops from ~5 minutes to roughly a minute. Nets without a tiling layout fall back to single-channel scanning.

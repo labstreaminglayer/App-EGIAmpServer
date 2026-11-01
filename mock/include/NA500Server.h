@@ -55,6 +55,10 @@ private:
     std::atomic<bool> streaming_{false};
     std::atomic<bool> dinEnabled_{false};
     std::atomic<bool> bncInEvents_{false};  // cmd_SetBncInMode 1; reset when the session ends
+    std::atomic<bool> comRefMode_{false};  // cmd_SetCOMAndRefForMeasurement 1: EEG reads 0
+    // The signal generator latches amplitude and frequency when switched on.
+    bool oscillatorOn_ = false;
+    int pendingCalAmplitude_ = 0, pendingCalFreq_ = 0;
     std::atomic<bool> bufferedReference_{false};  // EEG sits at the rail while off
     std::chrono::steady_clock::time_point poweredOnAt_{};  // front end ignores commands just after
     std::thread streamThread_;

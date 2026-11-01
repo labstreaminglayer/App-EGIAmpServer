@@ -109,6 +109,12 @@ bool EGIAmpClient::cmd_ImpedanceAcquisitionState() {
 
     impedanceMeasurement_->setSampleRate(config_.sampleRate);
     impedanceMeasurement_->setScalingFactor(details_.scalingFactor);
+    impedanceMeasurement_->setNA500(details_.amplifierType == AmplifierType::NA500);
+    if (details_.amplifierType == AmplifierType::NA500) {
+        // Net Station's ideal signal; the NA500's drive measures 5036 uV p-p on
+        // every channel, while self-calibration catches a switching transient.
+        impedanceMeasurement_->setIdealSignal(5000.0f);
+    }
     impedanceMeasurement_->setNetSize(getChannelCountFromNetCode(details_.netCode));
 
     // Set up the amplifier in impedance measurement state
@@ -497,6 +503,10 @@ bool EGIAmpClient::initAmplifier() {
         connection_.sendCommand("cmd_SetPower", ampId, 0, "1");
     }
 
+    // NA500 front end, physio gains and triggers (impedance mode then overrides
+    // the front end); no-op on other models.
+    enableNA500FrontEnd();
+
     // Configure acquisition state (impedance or default)
     if (config_.impedance) {
         try {
@@ -508,7 +518,6 @@ bool EGIAmpClient::initAmplifier() {
     } else {
         // Set default acquisition state when not in impedance mode
         connection_.sendCommand("cmd_DefaultAcquisitionState", ampId, 0, "0");
-        enableNA500FrontEnd();
     }
 
     // Start
@@ -654,6 +663,8 @@ bool EGIAmpClient::startStreaming() {
                 emitStatus("Using decimated rate (FPGA anti-alias filter enabled).\n");
             }
 
+            enableNA500FrontEnd();  // no-op on other models
+
             // Configure impedance state if requested
             if (config_.impedance) {
                 try {
@@ -664,9 +675,6 @@ bool EGIAmpClient::startStreaming() {
                 }
             }
 
-            if (!config_.impedance) {
-                enableNA500FrontEnd();
-            }
             connection_.sendCommand("cmd_Start", config_.amplifierId, 0, "0");
             weInitializedAmp_ = true;
         } else {
@@ -827,6 +835,12 @@ bool EGIAmpClient::startImpedanceMode() {
     });
     impedanceMeasurement_->setSampleRate(config_.sampleRate);
     impedanceMeasurement_->setScalingFactor(details_.scalingFactor);
+    impedanceMeasurement_->setNA500(details_.amplifierType == AmplifierType::NA500);
+    if (details_.amplifierType == AmplifierType::NA500) {
+        // Net Station's ideal signal; the NA500's drive measures 5036 uV p-p on
+        // every channel, while self-calibration catches a switching transient.
+        impedanceMeasurement_->setIdealSignal(5000.0f);
+    }
     impedanceMeasurement_->setNetSize(getChannelCountFromNetCode(details_.netCode));
 
     // Set up the amplifier in impedance measurement state

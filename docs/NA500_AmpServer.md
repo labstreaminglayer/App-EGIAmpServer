@@ -88,6 +88,21 @@ data on 9879). Only the differences that matter to a client are listed.
 - A BNC pulse fed to the EEG inputs starts moving the EEG on the same sample as the BNC-in event and
   reaches half amplitude about 1.5 samples later (the ADC filter's delay), at 1000 and 4000 Hz.
 
+## Impedance
+
+- With all channels driving (`cmd_TurnAllDriveSignals 1`, `cmd_SetOscillatorGate 1`, 20 Hz sine,
+  `cmd_SetCalibrationSignalAmplitude 1023` (the maximum; a 10-bit DAC), buffered reference off) every
+  channel reads ~5000 µV p-p. Switching a channel to measuring (`cmd_TurnChannelDriveSignals <ch> 0`,
+  `cmd_TurnChannel10KOhms <ch> 1`) puts it behind the 10 kΩ resistor; on the measured unit about
+  2 kΩ of the result is internal.
+- The signal generator **latches its amplitude and frequency when the oscillator is switched on**:
+  set them first, then `cmd_SetOscillatorGate 1`. Changes made while it is on do not take effect.
+- The reference and common electrodes are measured in a separate ADC configuration,
+  `cmd_SetCOMAndRefForMeasurement 1`: the EEG reads 0 and the reference and common signals arrive in the
+  packet's REF and COM monitor fields. Each switch needs about 1.2 s to settle, and switching back
+  (`… 0`) disables the DB9 inputs until `cmd_SetDinEnable` is sent again.
+- `cmd_DefaultAcquisitionState` changes nothing; a client must restore the acquisition state itself.
+
 ## Notifications
 
 Only four are sent, each after the reply to the command that causes it:

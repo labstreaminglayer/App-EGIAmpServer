@@ -172,6 +172,7 @@ void NA500Server::session(const std::atomic<bool>& running) {
     // input configuration does not.
     streaming_ = false;
     bncInEvents_ = false;
+    comRefMode_ = false;
     bufferedReference_ = false;
     amp_->setPower(false);
     {
@@ -303,10 +304,18 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
             bufferedReference_ = on;
         }
     }
-    else if (name == "cmd_SetOscillatorGate") amp_->setOscillatorGate(on);
+    else if (name == "cmd_SetOscillatorGate") {
+        if (on && !oscillatorOn_) {
+            amp_->setCalibrationSignalAmplitude(pendingCalAmplitude_);
+            amp_->setCalibrationSignalFreq(pendingCalFreq_);
+        }
+        oscillatorOn_ = on;
+        amp_->setOscillatorGate(on);
+    }
     else if (name == "cmd_SetWaveShape") amp_->setWaveShape(static_cast<WaveShape>(value));
-    else if (name == "cmd_SetCalibrationSignalFreq") amp_->setCalibrationSignalFreq(static_cast<int>(value));
-    else if (name == "cmd_SetCalibrationSignalAmplitude") amp_->setCalibrationSignalAmplitude(static_cast<int>(value));
+    else if (name == "cmd_SetCalibrationSignalFreq") pendingCalFreq_ = static_cast<int>(value);
+    else if (name == "cmd_SetCalibrationSignalAmplitude") pendingCalAmplitude_ = static_cast<int>(value);
+    else if (name == "cmd_SetCOMAndRefForMeasurement") comRefMode_ = on;
     else if (name == "cmd_SetPIBChannelGain") amp_->setPIBChannelGain(ch, static_cast<int>(value));
     return {OK};
 }
@@ -350,7 +359,13 @@ void NA500Server::streamLoop() {
             packet.timeStamp = static_cast<uint64_t>(streamStartUs_ + framesSinceStart++ * stepUs);
             packet.netCode = static_cast<uint8_t>(amp_->state().netCode);
             if (!dinEnabled_) packet.digitalInputs = 0;
-            if (!bufferedReference_) std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
+            if (comRefMode_) {
+                std::fill(std::begin(packet.eegData), std::end(packet.eegData), 0);
+            } else if (!bufferedReference_ && !amp_->state().oscillatorGate) {
+                // Railed without the buffered reference, unless the impedance
+                // drive is on (the NA500 impedance state runs with it off).
+                std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
+            }
             // BNC in (event mode) reports a 1 ms event at each rising edge; the mock
             // drives it from the test-jig pulse that also pulls DIN 1 low.
             const uint16_t din = packet.digitalInputs;
