@@ -75,6 +75,19 @@ data on 9879). Only the differences that matter to a client are listed.
   power-on default of 12 the physio scale equals the EEG's (0.0447 µV per count); at gain 1 it is 12
   times coarser. Gains **persist across sessions**, so a client should set them rather than assume them.
 
+## Triggers
+
+- **DB9 digital inputs** (16, active low) read 0 until `cmd_SetDinEnable` is sent (its value is
+  ignored), then idle at `0xFFFF`. The enable persists across sessions.
+- **BNC in**: `cmd_SetBncInMode 1` (event mode) reports each rising edge as a 1 ms event in bit 2 of
+  the first reserved byte: one sample at 1000 Hz, four at 4000 Hz, whatever the pulse length. Mode 0 is
+  off. The mode is reset when the session ends.
+- **BNC out**: `cmd_SetBncOutMode 1` (manual) makes `cmd_SetTriggerBncManualOut` fire one pulse of the
+  width set by `cmd_SetBncOutPulseWidth <µs>`.
+- Bits 0 and 1 of the same byte (photocell and audio inputs) read 1 with nothing connected.
+- A BNC pulse fed to the EEG inputs starts moving the EEG on the same sample as the BNC-in event and
+  reaches half amplitude about 1.5 samples later (the ADC filter's delay), at 1000 and 4000 Hz.
+
 ## Notifications
 
 Only four are sent, each after the reply to the command that causes it:

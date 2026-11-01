@@ -168,8 +168,10 @@ void NA500Server::session(const std::atomic<bool>& running) {
     open = false;
     notifyAccept.join();
     dataAccept.join();
-    // The DIN enable survives into the next session, as on the device.
+    // The DIN enable survives into the next session, as on the device; the BNC
+    // input configuration does not.
     streaming_ = false;
+    bncInEvents_ = false;
     bufferedReference_ = false;
     amp_->setPower(false);
     {
@@ -273,6 +275,10 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
         clockOffsetUs_ = value - hostMicros();
         return {OK};
     }
+    if (name == "cmd_SetBncInMode") {
+        bncInEvents_ = value == 1;
+        return {OK};
+    }
     if (name == "cmd_SetDinEnable") {
         dinEnabled_ = true;  // the device ignores the value
         return {OK};
@@ -314,6 +320,8 @@ void NA500Server::streamLoop() {
     auto next = std::chrono::steady_clock::now();
     uint64_t framesSinceStart = 0;
     bool wasStreaming = false;
+    uint16_t prevDin = 0xFFFF;
+    int bncSamplesLeft = 0;
 
     while (!stopping_) {
         if (!(streaming_ && amp_->isPowered())) {
@@ -343,7 +351,18 @@ void NA500Server::streamLoop() {
             packet.netCode = static_cast<uint8_t>(amp_->state().netCode);
             if (!dinEnabled_) packet.digitalInputs = 0;
             if (!bufferedReference_) std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
+            // BNC in (event mode) reports a 1 ms event at each rising edge; the mock
+            // drives it from the test-jig pulse that also pulls DIN 1 low.
+            const uint16_t din = packet.digitalInputs;
+            if (bncInEvents_ && (prevDin & 1) && !(din & 1)) {
+                bncSamplesLeft = rate >= 1000 ? rate / 1000 : 1;
+            }
+            prevDin = din;
             packet.reserved[0] = 3;  // idle level of the event inputs on the recorded unit
+            if (bncSamplesLeft > 0) {
+                packet.reserved[0] |= 0x04;
+                --bncSamplesLeft;
+            }
             // Only the first 8 slots of each physio array carry data on the NA500.
             std::fill(std::begin(packet.pib1_Data) + 8, std::end(packet.pib1_Data), 0);
             std::fill(std::begin(packet.pib2_Data) + 8, std::end(packet.pib2_Data), 0);

@@ -146,6 +146,7 @@ private:
     uint64_t lastTimeStamp_ = 0;
     uint64_t lastPacketCounterWithTimeStamp_ = 0;
     uint16_t lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle
+    bool lastBncIn_ = false;          // NA500 BNC input, reported as DIN bit 16
 
     StatusCallback statusCallback_;
     ErrorCallback errorCallback_;

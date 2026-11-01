@@ -54,6 +54,7 @@ private:
     std::atomic<bool> stopping_{false};
     std::atomic<bool> streaming_{false};
     std::atomic<bool> dinEnabled_{false};
+    std::atomic<bool> bncInEvents_{false};  // cmd_SetBncInMode 1; reset when the session ends
     std::atomic<bool> bufferedReference_{false};  // EEG sits at the rail while off
     std::chrono::steady_clock::time_point poweredOnAt_{};  // front end ignores commands just after
     std::thread streamThread_;

@@ -522,6 +522,10 @@ void EGIAmpClient::enableNA500FrontEnd() {
     // is switched on, and every cmd_Stop switches it off again.
     if (details_.amplifierType == AmplifierType::NA500) {
         connection_.sendCommand("cmd_SetBufferedReference", config_.amplifierId, 0, "1");
+        // Without this the DB9 inputs read 0, i.e. all 16 active (they are active-low).
+        connection_.sendCommand("cmd_SetDinEnable", config_.amplifierId, 0, "1");
+        // BNC in: report each rising edge (as DIN bit 16).
+        connection_.sendCommand("cmd_SetBncInMode", config_.amplifierId, 0, "1");
         // Physio gains persist on the amp across sessions; pin them to 12, the
         // power-on default, which the physio scaling assumes (same as the EEG's).
         for (int ch = 0; ch < 16; ch++) {
@@ -566,6 +570,7 @@ void EGIAmpClient::haltAmplifier() {
     dinStreamer_.closeOutlet();
     impedanceStreamer_.closeOutlet();
     lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle (no inputs)
+    lastBncIn_ = false;
     streamLost_ = false;
     ampRestarted_ = false;
     recoveryAttempts_ = 0;
@@ -1340,11 +1345,19 @@ void EGIAmpClient::readPacketFormat2() {
                     chunkFloat.push_back(std::move(eegSamples));
                 }
 
-                // Track DIN changes (pushed after the loop with per-sample timestamps)
-                if (packet.digitalInputs != lastDINValue_) {
-                    dinEvents.push_back({static_cast<int32_t>(static_cast<uint16_t>(~packet.digitalInputs)),
-                                         uniquePackets - 1});  // 0-based index among unique samples
+                // Track DIN changes (pushed after the loop with per-sample timestamps).
+                // The NA500's BNC input (a 1 ms event at each rising edge, in bit 2 of
+                // the first reserved byte) is reported as DIN bit 16.
+                const bool bncIn = details_.amplifierType == AmplifierType::NA500 &&
+                                   (packet.reserved[0] & 0x04) != 0;
+                if (packet.digitalInputs != lastDINValue_ || bncIn != lastBncIn_) {
+                    int32_t active = static_cast<uint16_t>(~packet.digitalInputs);
+                    if (bncIn) {
+                        active |= 0x10000;
+                    }
+                    dinEvents.push_back({active, uniquePackets - 1});  // 0-based index among unique samples
                     lastDINValue_ = packet.digitalInputs;
+                    lastBncIn_ = bncIn;
                 }
 
                 // Feed samples to impedance measurement if impedance mode is active
