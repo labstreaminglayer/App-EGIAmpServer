@@ -85,10 +85,13 @@ private:
     void emitSensor(NetCode code) const;
 
     bool queryAmplifierDetails();
+    bool waitForAmpPowerOn(int timeoutSeconds);
+    void ensureListening();
     bool isAmplifierStreaming();
     int detectSampleRate();  // Returns detected sample rate, or 0 if detection failed
     bool initAmplifier();
     void haltAmplifier();
+    void enableNA500FrontEnd();  // no-op on other models
 
     void readPacketFormat1();
     void readPacketFormat2();
@@ -132,6 +135,10 @@ private:
     int detectedSampleRate_{0};     // Sample rate detected from running amp
     NetCode detectedNetCode_{NetCode::Unknown};  // Sensor net code detected from running amp
     int physioConnectionStatus_{0};  // 0=none, 1=port1(16ch), 2=port2(16ch), 3=both(32ch)
+    // Whether cmd_ListenToAmp has been sent on the current data connection.
+    // Used by the NA500 code paths, which keep one persistent listening
+    // connection for the whole session (see ensureListening()).
+    bool dataListening_{false};
     std::unique_ptr<std::thread> readerThread_;
     std::unique_ptr<std::thread> notificationThread_;
 
@@ -139,6 +146,7 @@ private:
     uint64_t lastTimeStamp_ = 0;
     uint64_t lastPacketCounterWithTimeStamp_ = 0;
     uint16_t lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle
+    bool lastBncIn_ = false;          // NA500 BNC input, reported as DIN bit 16
 
     StatusCallback statusCallback_;
     ErrorCallback errorCallback_;

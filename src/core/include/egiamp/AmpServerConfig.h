@@ -2,6 +2,7 @@
 #define EGIAMP_AMPSERVERCONFIG_H
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <stdexcept>
 
@@ -31,8 +32,9 @@ struct AmpServerConfig {
     // scripts/audio_latency_test (native modes). Applied unconditionally, on top
     // of the decimated-only FPGA filter offset. Default intentionally slightly
     // under the measured value so we never back-date a sample *before* its event
-    // (a response cannot precede its stimulus); user-tunable.
-    double systemDelayMs = 4.5;
+    // (a response cannot precede its stimulus); user-tunable. Unset means the
+    // per-model default, defaultSystemDelayMs() in AmpServerProtocol.h.
+    std::optional<double> systemDelayMs;
     bool impedance = false;
     bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
 
@@ -42,8 +44,9 @@ struct AmpServerConfig {
 
     /// Suffix for LSL source ID to distinguish native/decimated mode and timestamp alignment.
     /// Ensures LSL consumers won't auto-reconnect across incompatible configurations.
-    std::string modeSuffix() const {
-        const bool native = sampleRate > 1000 || (fastRecovery && sampleRate >= 500);
+    /// The caller decides `native` via usesNativeRate(), which needs the amp model
+    /// (rate/mode capabilities differ between NA400 and NA500).
+    std::string modeSuffix(bool native) const {
         // Decimated streams are always alignment-corrected, so "_decimated"
         // already implies aligned — no separate suffix needed.
         return native ? "_native" : "_decimated";

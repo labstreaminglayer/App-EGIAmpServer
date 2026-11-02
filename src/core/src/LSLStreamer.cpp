@@ -222,7 +222,8 @@ void LSLStreamer::createOutlet(const std::string& streamName, int eegChannelCoun
             // PIB channels 1-8 use negative scaling, 9-16 use positive scaling
             // Channel index within each PIB port: 0-7 negative, 8-15 positive
             int portChannel = i % 16;
-            float conversion = (portChannel < 8) ? PHYSIO_SCALING_1_8 : PHYSIO_SCALING_9_16;
+            float conversion = details.amplifierType == AmplifierType::NA500 ? details.scalingFactor
+                               : (portChannel < 8) ? PHYSIO_SCALING_1_8 : PHYSIO_SCALING_9_16;
             ch.append_child_value("conversion",
                                   std::to_string(conversion));
         } else {

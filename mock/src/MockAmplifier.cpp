@@ -117,8 +117,15 @@ bool MockAmplifier::setNativeRate(int rate) {
     // Real amplifier validates native rate
     // NA400: 500, 1000, 2000, 4000, 8000
     // NA410: 20000 only
+    // NA500: 250, 500, 1000, 2000, 4000, 8000, 16000 (verified on hardware;
+    // its AmpServer answers "complete" regardless, but only these stream)
     if (state_.amplifierType == AmplifierType::NA410) {
         if (rate != 20000) return false;
+    } else if (state_.amplifierType == AmplifierType::NA500) {
+        if (rate != 250 && rate != 500 && rate != 1000 && rate != 2000 &&
+            rate != 4000 && rate != 8000 && rate != 16000) {
+            return false;
+        }
     } else {
         if (rate != 500 && rate != 1000 && rate != 2000 &&
             rate != 4000 && rate != 8000) {
@@ -133,7 +140,7 @@ bool MockAmplifier::setNativeRate(int rate) {
 bool MockAmplifier::setDecimatedRate(int rate) {
     std::lock_guard<std::mutex> lock(mutex_);
     // Real amplifier accepts any rate value without validation
-    // Valid rates: 250, 500, 1000
+    // Valid rates: 250, 500, 1000 (NA400); NA500 additionally supports 2000
     state_.decimatedRate = rate;
     state_.decimated = true;  // decimated mode: FPGA filter introduces EEG/physio skew
     return true;
@@ -417,9 +424,11 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
     // continuous timestamp offset, so nearest-sample is the closest the mock's
     // sample grid can get). The physio lead floors, matching the device's own
     // whole-sample quantization (32 ms @ 250/500, 33 ms @ 1000).
-    const int eegDelaySamples = state_.decimated
+    // The NA500 has neither skew: its decimated and native rates stream identically.
+    const bool skewed = state_.decimated && state_.amplifierType != AmplifierType::NA500;
+    const int eegDelaySamples = skewed
         ? (filterDelayMs(sampleRate) * sampleRate + 500) / 1000 : 0;
-    const int physioLeadSamples = state_.decimated
+    const int physioLeadSamples = skewed
         ? PHYSIO_LEAD_MS * sampleRate / 1000 : 0;
     int physioDelaySamples = eegDelaySamples - physioLeadSamples;
     if (physioDelaySamples < 0) physioDelaySamples = 0;
@@ -454,7 +463,8 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
 
     // Ideal signal amplitude in microvolts for impedance mode
     // This matches what a 0-ohm electrode would produce
-    constexpr double IDEAL_SIGNAL_UV = 100.0;
+    // The NA500 drives ~5000 uV p-p (its DAC at full scale); 100 uV elsewhere.
+    const double IDEAL_SIGNAL_UV = state_.amplifierType == AmplifierType::NA500 ? 2500.0 : 100.0;
     constexpr double REFERENCE_RESISTOR_KOHMS = 10.0;
 
     for (int ch = 0; ch < 256; ++ch) {
@@ -463,8 +473,10 @@ void MockAmplifier::generatePacketFormat2(PacketFormat2_SamplePacket& packet) {
         double noise = (rand() % 1000 - 500) / 500.0 * 2.0;  // ~2 uV noise
 
         // Check channel state for impedance measurement
-        bool channelDriving = state_.channelDriveSignals[ch] || state_.allDriveSignals;
-        bool channel10K = state_.channel10KOhms[ch] || state_.all10KOhms;
+        // The setAll* calls set every per-channel flag, so the per-channel flags
+        // alone are current (OR-ing in the "all" flag would ignore per-channel changes).
+        bool channelDriving = state_.channelDriveSignals[ch];
+        bool channel10K = state_.channel10KOhms[ch];
 
         if (impedanceMode) {
             // Use calibration signal frequency

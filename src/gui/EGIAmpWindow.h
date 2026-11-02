@@ -7,6 +7,7 @@
 #include <QMainWindow>
 #include <memory>
 #include <string>
+#include <thread>
 
 namespace Ui {
 class EGIAmpWindow;
@@ -29,6 +30,8 @@ private slots:
     void displayError(QString description);
     void unlockUI();
     void lockUI();
+    void onLinkFinished(bool ok, QString errorMessage);
+    void onAmpDetectedRunning(int detectedRate);
 
 signals:
     void appendStatusMessage(QString message);
@@ -39,6 +42,9 @@ signals:
     void error(QString description);
     void enableUI();
     void disableUI();
+    // Emitted from the link worker thread (see linkAmpserver)
+    void linkFinished(bool ok, QString errorMessage);
+    void ampDetectedRunning(int detectedRate);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -49,10 +55,17 @@ private:
     void updateUIFromConfig();
     egiamp::AmpServerConfig getConfigFromUI() const;
     void populateSampleRateCombo();
+    int defaultSampleRateIndex() const;
     int findSampleRateIndex(int rate, bool native) const;
+
+    void joinLinkThread();
 
     Ui::EGIAmpWindow* ui;
     std::unique_ptr<egiamp::EGIAmpClient> client_;
+    // Runs the connect/query/start sequence off the UI thread — an NA500 cold
+    // start legitimately takes 15+ s (power-on wait), and a hung AmpServer
+    // must never freeze the UI. Progress arrives via queued signals.
+    std::unique_ptr<std::thread> linkThread_;
 };
 
 #endif // EGIAMPWINDOW_H

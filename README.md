@@ -33,7 +33,7 @@ The CLI provides a lightweight alternative to the GUI:
 - `--cmd-port <port>` - Command port (default: 9877)
 - `--data-port <port>` - Data port (default: 9879)
 - `--amp-id <id>` - Amplifier ID (default: 0)
-- `--sample-rate <hz>` - Sample rate in Hz (default: 1000). Forces amplifier to this rate if already running at a different rate. Valid rates: 250, 500, 1000 (decimated) or 500, 1000, 2000, 4000, 8000 (native).
+- `--sample-rate <hz>` - Sample rate in Hz (default: 1000). Forces amplifier to this rate if already running at a different rate. Valid rates depend on the amplifier model — see [Sample Rate Modes](#sample-rate-modes). Unsupported combinations are rejected with an error before the amplifier is touched.
 - `--fast-recovery` - Use native rate mode (no FPGA anti-alias filter) for lower latency. See [Sample Rate Modes](#sample-rate-modes).
 - `--impedance` - Enable impedance testing mode
 - `--native-format` - Transmit raw int32 ADC counts instead of float microvolts
@@ -92,15 +92,15 @@ If the amplifier is stopped or restarted externally while the CLI is streaming:
 
 ## Sample Rate Modes
 
-The NA400/NA410 amplifiers support two operating modes that affect anti-aliasing and latency:
+The NA400/NA410/NA500 amplifiers support two operating modes that affect anti-aliasing and latency:
 
 ### Decimated Mode (Default)
 
 Uses the FPGA's digital anti-aliasing filter to downsample from the ADC's native rate. This provides:
 - Better frequency response (~400 Hz bandwidth at 1000 Hz sample rate)
-- Higher latency due to the filter group delay (36-111 ms depending on rate), which the app compensates for automatically — see [Timestamp Compensation](#timestamp-compensation)
+- On the NA400, higher latency due to the filter group delay (36-111 ms depending on rate), which the app compensates for automatically — see [Timestamp Compensation](#timestamp-compensation)
 
-Available decimated rates: 250, 500, 1000 Hz
+Available decimated rates: 250, 500, 1000 Hz (NA400/NA410); 250, 500, 1000, 2000 Hz (NA500)
 
 ### Native Mode (Fast Recovery)
 
@@ -109,20 +109,54 @@ Bypasses the FPGA filter and samples directly at the requested rate. This provid
 - Reduced bandwidth (~1/4 of sample rate, e.g., 250 Hz at 1000 Hz sample rate)
 - Optimized for EEG-TMS and real-time BCI applications
 
-Available native rates: 500, 1000, 2000, 4000, 8000 Hz
+Available native rates: 500, 1000, 2000, 4000, 8000 Hz (NA400); 250, 500, 1000, 2000, 4000 Hz (NA500)
 
-Use `--fast-recovery` to enable native mode for rates that support both modes (500, 1000 Hz).
+Use `--fast-recovery` (or a "Low Latency" dropdown entry) to select native mode for rates where the model offers both.
+
+The GUI dropdown shows the union of both models' rates; the client validates the selection against the amplifier's actual model right after it identifies itself and refuses unsupported combinations with a clear error.
 
 ### Filter Delay by Sample Rate
 
-DIN→EEG group delay of the FPGA anti-alias filter (decimated mode only), measured with `scripts/delay_capture_sweep.py`:
+DIN→EEG group delay of the FPGA anti-alias filter (decimated mode only). NA400 values measured with `scripts/delay_capture_sweep.py`:
 
-| Mode | Sample Rate | Filter delay (ms) | (samples) |
-|------|-------------|-------------------|-----------|
-| Decimated | 250 Hz | 111 | ~28 |
-| Decimated | 500 Hz | 61 | ~30 |
-| Decimated | 1000 Hz | 36 | 36 |
-| Native | 500-8000 Hz | 0 | 0 |
+| Amp | Mode | Sample Rate | Filter delay (ms) | (samples) |
+|-----|------|-------------|-------------------|-----------|
+| NA400 | Decimated | 250 Hz | 111 | ~28 |
+| NA400 | Decimated | 500 Hz | 61 | ~30 |
+| NA400 | Decimated | 1000 Hz | 36 | 36 |
+| NA400 | Native | 500-8000 Hz | 0 | 0 |
+| NA500 | any | all rates | 0 | 0 |
+
+The NA500 rows are zero deliberately: Net Station 6 applies no anti-alias alignment shift for the NA500 (verified against Net Station 6.0.0.60960), so this app matches that behavior. If a real NA500 filter delay is ever measured, update `resources/sampling_rates.json`.
+
+## Net Amps 500 (GES 500) Support
+
+NA500 support was verified against real hardware (firmware 0.4.9). The amplifier's protocol is documented, as observed on the wire, in [docs/NA500_AmpServer.md](docs/NA500_AmpServer.md).
+
+**Finding the amplifier**: the NA500 gets its address by DHCP and advertises itself over mDNS (service `_na500._tcp`), typically as `NA500-256ch-<serial>.local`. Pass that name instead of an IP, e.g. `--address NA500-256ch-0001.local`. This works out of the box on macOS and recent Windows 10/11; Linux needs Avahi with `nss-mdns`. To list amplifiers on the network, run `dns-sd -B _na500._tcp` (macOS/Windows with Bonjour) or `avahi-browse -r _na500._tcp` (Linux). With no DHCP server on the network the amplifier has no IPv4 address, and this app cannot reach it because its AmpServer is IPv4-only. When the amplifier is cabled directly to this computer (or to a switch with no DHCP server), give the computer's adapter a static address and serve the amplifier a lease with [dnsmasq](https://thekelleys.org.uk/dnsmasq/doc.html) (`brew install dnsmasq` / `apt install dnsmasq`). For example, with the adapter `en10` set to 10.10.10.61/24:
+
+```bash
+sudo dnsmasq -d --port=0 --interface=en10 --bind-interfaces \
+     --dhcp-range=10.10.10.62,10.10.10.62,255.255.255.0,12h
+```
+
+`--port=0` disables dnsmasq's DNS server, so it only hands out the one address; `-d` keeps it in the foreground (Ctrl+C stops it). The amplifier picks the lease up within a minute, without a restart, and it must be running whenever the amplifier powers up.
+
+Differences from the NA400 that this app handles automatically:
+
+- **Scaling**: 0.044703 µV/bit (±375 mV over 24 bits, matching the GES 500 datasheet and Net Station 6).
+- **Rates**: decimated up to 2000 Hz; native from 250 Hz up to 4000 Hz. No duplicate packets are sent at low rates (the NA400 duplicates samples below 1000 Hz). 8000 and 16000 Hz are not offered: the amplifier accepts them but delivers at most about 7995 samples/s, and the missing samples leave no gap in its packet counter (about 4 samples/s lost at 8000 Hz, half at 16000 Hz).
+- **Initialization**: the NA500 silently ignores commands sent while it is powering up (~10 s from cold), so the app waits for the power-on notification before configuring it.
+- **Data connection handling**: the NA500's AmpServer serves one data listener per session; once it disconnects, no new listener is served until the command connection closes and a new session starts. The app therefore maintains one persistent data connection per session and never issues `cmd_StopListeningToAmp` (which the NA500 never answers).
+- **Continuous reading**: the NA500 drops samples if its data port goes unread for a few seconds, so the app does not wait for a Physio16 status notification (the NA500 sends none).
+- **Stale packets**: after `cmd_Start` the NA500 first resends leftover packets from its previous stream before its counter restarts at 0; the app discards them.
+- **Front end**: the NA500's EEG reads full scale until its buffered reference is switched on, every `cmd_Stop` switches it off, and switch commands sent within ~20 ms of power-on are lost; the app waits briefly after power-on and enables the buffered reference before each `cmd_Start`.
+- **Physio16**: the NA500 never reports whether a Physio16 is attached, so the app always streams its 16 physio channels (PIB1-16) after the EEG. Physio gains persist on the amplifier, so the app sets them to 12, the power-on default, before each start; the physio is then scaled like the EEG (±375 mV range) and needs no realignment delay.
+- **Triggers**: the app enables the NA500's DB9 digital inputs (without that they read as all 16 active) and its BNC input. Each rising edge on BNC in appears in the `_DIN` stream as bit 16 (value `0x10000`) for 1 ms, alongside the 16 DB9 bits. The EEG trails a BNC-in event by about 1.5 samples (the ADC filter's delay); no correction is applied, as in Net Station.
+- **Clock**: the NA500 stamps packets with its own clock, which is not synchronized; the app sets it with `cmd_SetAmpTime` at power-on, as Net Station does.
+- **Single client**: while Net Station (or any other client) is linked to the NA500, this app's connections are accepted but not serviced — and vice versa. Unlink Net Station before using this app; concurrent monitoring is not possible on the NA500 (unlike the NA400).
+- **Recovery**: the NA500 sends `ntn_AmpStarted` only in reply to `cmd_GetStartTime`, not when streaming starts, so external-restart recovery uses data-port polling instead.
+- **Robustness**: the NA500's embedded AmpServer (fw 0.4.9) can crash or stop responding after abrupt client disconnects; commands now time out after 10 s instead of hanging, and the GUI performs linking on a background thread so the UI never freezes. A crashed AmpServer requires power-cycling the amplifier.
 
 ## Timestamp Compensation
 
@@ -132,9 +166,9 @@ There is **no flag to toggle this** — it follows the configured mode automatic
 
 ### 1. System (pipeline) delay — always applied
 
-Every pushed timestamp (EEG, Physio16, **and** DIN) is moved earlier by `systemdelayms` to account for the time between digitization and the sample becoming available here: device firmware + network transmission + our read path. Measured at ~5 ms in native mode using `scripts/audio_latency_test`.
+Every pushed timestamp (EEG, Physio16, **and** DIN) is moved earlier by `systemdelayms` to account for the time between digitization and the sample becoming available here: device firmware + network transmission + our read path. Measured using `scripts/audio_latency_test` at ~5 ms on the NA400, and on the NA500 at ~1.0 ms plus 1.1 sample periods (5.4 ms at 250 Hz, 2.1 ms at 1000 Hz, 1.3 ms at 4000 Hz).
 
-The default is **4.5 ms** — deliberately a little *under* the measured value. Under-compensating is the safe direction: it guarantees a sample is never back-dated to *before* the event that produced it (a response must not precede its stimulus). It is user-configurable; raise it toward the measured latency if you prefer tighter alignment and can accept that risk.
+The default is **4.5 ms** (NA400 and other models) and **0.8 ms + one sample period** on the NA500 (4.8 ms at 250 Hz, 1.8 ms at 1000 Hz) — deliberately a little *under* the measured value. Under-compensating is the safe direction: it guarantees a sample is never back-dated to *before* the event that produced it (a response must not precede its stimulus). It is user-configurable; raise it toward the measured latency if you prefer tighter alignment and can accept that risk.
 
 ### 2. FPGA filter offset — decimated mode only
 
@@ -152,7 +186,7 @@ Both values live in the config file (and persist via File → Save Configuration
 <settings>
   ...
   <physioaligndelayms>33</physioaligndelayms>   <!-- Physio16 realignment, decimated only -->
-  <systemdelayms>4.5</systemdelayms>            <!-- pipeline-latency compensation, always -->
+  <systemdelayms>4.5</systemdelayms>            <!-- pipeline-latency compensation, always; omit for the per-model default -->
 </settings>
 ```
 
@@ -276,6 +310,16 @@ cmd_TurnChannelDriveSignals(N, 1)  - Turn ON drive signal (reset)
 cmd_TurnChannel10KOhms(N, 0)       - Turn OFF 10K resistor (reset)
 ```
 
+### Net Amps 500
+
+The NA500 runs the same algorithm with these differences, handled automatically:
+- **Drive level**: calibration amplitude 1023 (its DAC is 10-bit), which gives ~5000 µV p-p on every channel. The app uses Net Station's fixed 5000 µV ideal signal rather than self-calibrating, which catches a switching transient on this amplifier.
+- **Oscillator last**: the NA500 latches amplitude and frequency when the oscillator turns on, so the app switches it on after setting them.
+- **Reference**: measured in the NA500's COM/REF measurement mode (`cmd_SetCOMAndRefForMeasurement`), with ~1.2 s settling on each side; the EEG reads 0 during that step.
+- **Leaving impedance mode**: `cmd_DefaultAcquisitionState` does nothing on the NA500, so the app restores the acquisition state explicitly.
+
+Verified on a GES 500 with a test jig that ties all inputs together (all channels ~0 kΩ, reference ~0.5 kΩ); absolute accuracy against real electrodes has not been checked.
+
 ### Limitations and Notes
 
 - **Tiling-based scanning**: When a tiling layout is available for the detected net (32/64/128/256 HydroCel GSN nets), channels are measured in groups (~5-6 collections per full scan) rather than one at a time — no flag required, it engages automatically. A full 256-channel scan drops from ~5 minutes to roughly a minute. Nets without a tiling layout fall back to single-channel scanning.
@@ -381,7 +425,9 @@ The amplifier's internal DIN ADC samples at a fixed 1 kHz rate, regardless of th
 
 The NA400/NA410 amplifiers have a 16-bit digital I/O port with active-low inputs (internal pull-ups). When no trigger device is connected, all lines are pulled high and the DIN stream reports `0` (idle). Grounding a line activates the corresponding bit.
 
-The `cmd_SetDigitalInOutDirection` command can configure specific bits for output if needed (consult EGI documentation).
+The NA500's DIN register idles at raw `0` (the NA400 idles at raw `0xFFFF`); its input polarity has not yet been verified with a working trigger source. Its BNC "sync in" connector expects TTL-level pulses (a line-level audio output is not sufficient to drive it).
+
+The `cmd_SetDigitalInOutDirection` command can configure specific bits for output if needed on the NA400 (consult EGI documentation). Do **not** send it to an NA500 — firmware 0.4.9 crashed when it was issued during testing.
 
 # Acknowledgements
 This application was written to behave near-identically to the BCI2000 AmpServer module that was originally created by EGI.
@@ -410,6 +456,14 @@ To use the mock server for development:
 > # or update ampserver_config.cfg to use 127.0.0.1 and run GUI
 
 The mock server generates synthetic sine waves (10-50 Hz) with noise for the EEG data, so you can also verify the LSL stream in downstream applications.
+
+The C++ mock (`MockAmpServer`, built with the project) also emulates other models. `MockAmpServer --amp-type NA500` reproduces the NA500's session-based AmpServer, including its quirks (see [docs/NA500_AmpServer.md](docs/NA500_AmpServer.md)); add `--net-code None` to emulate a unit with no net attached.
+
+`scripts/ampserver_conformance.py` records how an AmpServer behaves on the wire and diffs two recordings. The recording of a real NA500 is in `mock/conformance/`; to check the mock against it:
+
+> MockAmpServer --amp-type NA500 --net-code None &
+> python3 scripts/ampserver_conformance.py --host 127.0.0.1 --active -o mock.json
+> python3 scripts/ampserver_conformance.py --compare mock/conformance/na500_fw0.4.9.json mock.json
 
 # Known Issues
 
@@ -466,4 +520,4 @@ After Net Station shuts down the amplifier (via "Shutdown" command), immediately
 
 ## Sample Rate Auto-Detection
 
-The app automatically detects the sample rate when connecting to an already-running amplifier by measuring packet timing. This detection snaps to standard rates (250, 500, or 1000 Hz). If the amplifier is idle when connecting, the app uses the sample rate configured in the UI/config file.
+The app automatically detects the sample rate when connecting to an already-running amplifier by measuring packet timing. This detection snaps to standard rates (250 Hz up to 16000 Hz). If the amplifier is idle when connecting, the app uses the sample rate configured in the UI/config file.

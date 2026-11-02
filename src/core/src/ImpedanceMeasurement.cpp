@@ -124,15 +124,25 @@ bool ImpedanceMeasurement::setupImpedanceState() {
         // Driven leg (common) OFF
         {"cmd_SetDrivenCommon", "0"},
 
-        // Calibration amplitude: maximum (4095 = 12 bits all set)
-        {"cmd_SetCalibrationSignalAmplitude", "4095"},
+        // Calibration amplitude: maximum (4095 = 12 bits all set; the NA500's
+        // DAC is 10-bit, so 1023, which gives ~5000 uV p-p on every channel)
+        {"cmd_SetCalibrationSignalAmplitude", na500_ ? "1023" : "4095"},
     };
 
     for (const auto& [cmd, value] : commands) {
+        // The NA500's signal generator latches amplitude and frequency when the
+        // oscillator is switched on, so it is switched on last (below).
+        if (na500_ && cmd == "cmd_SetOscillatorGate") {
+            continue;
+        }
         if (!sendCommand(cmd, 0, value)) {
             emitStatus("Failed to send command: " + cmd + "\n");
             return false;
         }
+    }
+    if (na500_ && !sendCommand("cmd_SetOscillatorGate", 0, "1")) {
+        emitStatus("Failed to send command: cmd_SetOscillatorGate\n");
+        return false;
     }
 
     emitStatus("Impedance state configured.\n");
@@ -191,6 +201,23 @@ bool ImpedanceMeasurement::calibrate() {
 
 bool ImpedanceMeasurement::resetToDefaultState() {
     emitStatus("Resetting to default acquisition state...\n");
+    if (na500_) {
+        // cmd_DefaultAcquisitionState does nothing on the NA500, so restore its
+        // acquisition state explicitly: drive signal off, buffered reference on.
+        const std::pair<std::string, std::string> commands[] = {
+            {"cmd_TurnAll10KOhms", "0"},        {"cmd_TurnAllDriveSignals", "0"},
+            {"cmd_SetSubjectGround", "1"},      {"cmd_SetCurrentSource", "0"},
+            {"cmd_SetBufferedReference", "1"},  {"cmd_SetDrivenCommon", "0"},
+            {"cmd_SetReference10KOhms", "0"},   {"cmd_SetReferenceDriveSignal", "0"},
+            {"cmd_SetCalibrationSignalAmplitude", "0"}, {"cmd_SetWaveShape", "0"},
+            {"cmd_SetCalibrationSignalFreq", "0"},      {"cmd_SetOscillatorGate", "0"},
+        };
+        bool ok = true;
+        for (const auto& [cmd, value] : commands) {
+            ok = sendCommand(cmd, 0, value) && ok;
+        }
+        return ok;
+    }
     return sendCommand("cmd_DefaultAcquisitionState", 0, "0");
 }
 
@@ -441,14 +468,35 @@ ChannelImpedance ImpedanceMeasurement::measureReference() {
     result.impedanceKOhms = MAX_IMPEDANCE_KOHMS;
     result.amplitude = 0.0f;
 
-    // Put reference in measurement mode
-    setReferenceDriving(false);
+    std::deque<PacketFormat2> packets;
+    if (na500_) {
+        // The NA500 measures REF (and COM) in a separate ADC configuration: the
+        // EEG reads 0 and REF arrives in refMonitor. Each switch needs ~1.2 s to
+        // settle, and switching back disables the DB9 inputs.
+        const auto settle = std::chrono::milliseconds(1200);
+        sendCommand("cmd_SetCOMAndRefForMeasurement", 0, "1");
+        std::this_thread::sleep_for(settle);
+        setupImpedanceState();
+        sendCommand("cmd_SetReferenceDriveSignal", 0, "1");
+        std::this_thread::sleep_for(settle);
+        sendCommand("cmd_SetReferenceDriveSignal", 0, "0");
+        sendCommand("cmd_SetReference10KOhms", 0, "1");
+        sendCommand("cmd_SetCOM10KOhms", 0, "1");
+        packets = collectSampleBuffer();
+        sendCommand("cmd_SetCOMAndRefForMeasurement", 0, "0");
+        std::this_thread::sleep_for(settle);
+        sendCommand("cmd_SetDinEnable", 0, "1");
+        setupImpedanceState();  // back to all channels driving
+    } else {
+        // Put reference in measurement mode
+        setReferenceDriving(false);
 
-    // Collect sample buffer and extract from the dedicated refMonitor field
-    std::deque<PacketFormat2> packets = collectSampleBuffer();
+        // Collect sample buffer and extract from the dedicated refMonitor field
+        packets = collectSampleBuffer();
 
-    // Reset reference to driving mode
-    setReferenceDriving(true);
+        // Reset reference to driving mode
+        setReferenceDriving(true);
+    }
 
     std::vector<float> samples;
     samples.reserve(packets.size());
