@@ -5,11 +5,15 @@ if(POLICY CMP0177)
     cmake_policy(SET CMP0177 NEW)
 endif()
 
+# Keep the fallback current when tagging releases: source archives have no .git.
+include(cmake/ProjectVersion.cmake)
+egiamp_version_from_git(EGIAMP_VERSION EGIAMP_VERSION_FULL FALLBACK "3.0.0")
+
 project(EGIAmpServer
+    VERSION ${EGIAMP_VERSION}
     DESCRIPTION "EGI AmpServer to LSL bridge"
     HOMEPAGE_URL "https://github.com/labstreaminglayer/App-EGIAmpServer/"
-    LANGUAGES CXX
-    VERSION 2.2.0)
+    LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -226,11 +230,11 @@ LSL_get_target_arch()
 LSL_get_os_name()
 
 set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION "${EGIAMP_VERSION_FULL}")
 set(CPACK_PACKAGE_VENDOR "Labstreaminglayer")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
-set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${LSL_OS}_${LSL_ARCH}")
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${EGIAMP_VERSION_FULL}-${LSL_OS}_${LSL_ARCH}")
 set(CPACK_STRIP_FILES ON)
 
 if(WIN32)
@@ -239,6 +243,10 @@ elseif(APPLE)
     set(CPACK_GENERATOR TGZ)
 else()
     set(CPACK_GENERATOR DEB TGZ)
+    # Debian prereleases must sort before the corresponding stable release.
+    string(REGEX REPLACE
+        "^([0-9]+\\.[0-9]+\\.[0-9]+)[.-]?((alpha|beta|rc|a|b)[0-9]+)$"
+        "\\1~\\2" CPACK_DEBIAN_PACKAGE_VERSION "${EGIAMP_VERSION_FULL}")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "LabStreamingLayer Developers")
     set(CPACK_DEBIAN_PACKAGE_SECTION "science")
     set(CPACK_DEBIAN_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}.deb")
