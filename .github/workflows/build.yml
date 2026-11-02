@@ -46,6 +46,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # -----------------------------------------------------------------------
       # Install CMake 3.28+ (Ubuntu 22.04 ships with 3.22)
