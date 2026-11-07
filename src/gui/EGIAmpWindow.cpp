@@ -45,6 +45,7 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
 
     // Impedance mode checkbox
     connect(ui->impedanceCheckBox, &QCheckBox::toggled, this, &EGIAmpWindow::toggleImpedanceMode);
+    connect(ui->triggerButton, &QPushButton::clicked, this, &EGIAmpWindow::triggerBncOut);
 
     // Signal connections for cross-thread communication
     connect(this, &EGIAmpWindow::appendStatusMessage,
@@ -178,10 +179,7 @@ void EGIAmpWindow::linkAmpserver() {
         joinLinkThread();
         client_->stopStreaming();
         client_->disconnect();
-        ui->statusBar->clearMessage();
-        ui->statusBar->setStyleSheet("");
-        emit fieldsEnabled(true);
-        emit setLinkButtonText("Link");
+        unlockUI();  // also re-enables Shutdown and disables impedance/trigger
         emit sensorLayoutUpdated("");
     } else {
         // Link — disable button immediately to prevent double-click
@@ -275,6 +273,7 @@ void EGIAmpWindow::unlockUI() {
     ui->actionShutdown_Amp_Server->setEnabled(true);
     ui->impedanceCheckBox->setEnabled(false);
     ui->impedanceCheckBox->setChecked(false);
+    ui->triggerButton->setEnabled(false);
 }
 
 void EGIAmpWindow::lockUI() {
@@ -283,6 +282,8 @@ void EGIAmpWindow::lockUI() {
     emit fieldsEnabled(false);
     ui->actionShutdown_Amp_Server->setEnabled(false);
     ui->impedanceCheckBox->setEnabled(true);
+    ui->triggerButton->setEnabled(
+        client_->amplifierDetails().amplifierType == egiamp::AmplifierType::NA500);
 }
 
 void EGIAmpWindow::shutdownAmpServer() {
@@ -407,4 +408,11 @@ int EGIAmpWindow::findSampleRateIndex(int rate, bool native) const {
         }
     }
     return defaultSampleRateIndex(); // fallback to "1000 Hz"
+}
+
+void EGIAmpWindow::triggerBncOut() {
+    // Failures are reported through the client's error callback.
+    if (client_->triggerBncOut(egiamp::EGIAmpClient::BNC_OUT_DEFAULT_PULSE_US)) {
+        emit appendStatusMessage("BNC trigger sent.");
+    }
 }

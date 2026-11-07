@@ -154,6 +154,19 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="triggerButton">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="text">
+         <string>BNC Trigger</string>
+        </property>
+        <property name="toolTip">
+         <string>Send a 1 ms TTL pulse on the amplifier's BNC output (Net Amps 500 only)</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <spacer name="horizontalSpacer">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>

@@ -67,6 +67,7 @@ bool AmpServerConnection::isConnected() const {
 
 std::string AmpServerConnection::sendCommand(const std::string& command, int ampId,
                                              int channel, const std::string& value) {
+    std::lock_guard<std::mutex> lock(commandMutex_);
     char response[4096];
     // Build the whole command first and write it in a single insertion: the
     // NA500's AmpServer parses each TCP segment as a complete message, so a

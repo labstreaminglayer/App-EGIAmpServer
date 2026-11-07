@@ -49,6 +49,7 @@ bool EGIAmpClient::connect() {
     }
 
     dataListening_ = false;  // Fresh data connection, not yet listening
+    bncOutWidthUs_ = 0;      // New session: configure the BNC output again before triggering
 
     // Create notification stream — lives as long as the connection
     std::string streamName = config_.streamName();
@@ -892,6 +893,30 @@ void EGIAmpClient::stopImpedanceMode() {
 
 bool EGIAmpClient::isImpedanceModeActive() const {
     return impedanceModeActive_;
+}
+
+bool EGIAmpClient::triggerBncOut(const int widthUs) {
+    if (!isStreaming() || details_.amplifierType != AmplifierType::NA500) {
+        emitError("BNC output trigger needs a streaming Net Amps 500");
+        return false;
+    }
+    try {
+        // Mode and width only once per session (or width change), so a trigger
+        // normally costs a single command round trip.
+        if (bncOutWidthUs_ != widthUs) {
+            if (bncOutWidthUs_ == 0) {
+                connection_.sendCommand("cmd_SetBncOutMode", config_.amplifierId, 0, "1");  // manual
+            }
+            connection_.sendCommand("cmd_SetBncOutPulseWidth", config_.amplifierId, 0,
+                                    std::to_string(widthUs));
+            bncOutWidthUs_ = widthUs;
+        }
+        return commandCompleted(
+            connection_.sendCommand("cmd_SetTriggerBncManualOut", config_.amplifierId, 0, "0"));
+    } catch (const std::exception& ex) {
+        emitError(std::string("BNC output trigger failed: ") + ex.what());
+        return false;
+    }
 }
 
 bool EGIAmpClient::shutdownAmpServer() {
