@@ -64,6 +64,7 @@ add_library(egiamp_core STATIC
     src/ImpedanceMeasurement.cpp
     src/LSLStreamer.cpp
     src/EGIAmpClient.cpp
+    src/RemoteControl.cpp
     src/SensorLayout.cpp
     "${GENERATED_DIR}/EmbeddedResources.cpp"
     "${GENERATED_DIR}/egiamp/FilterDelays.h"

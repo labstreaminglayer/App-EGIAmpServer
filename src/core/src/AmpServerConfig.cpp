@@ -67,6 +67,9 @@ AmpServerConfig AmpServerConfig::loadFromFile(const std::string& filename) {
         if (auto node = settings.child("physioaligndelayms")) {
             config.physioAlignDelayMs = node.text().as_int(config.physioAlignDelayMs);
         }
+        if (auto node = settings.child("remoteport")) {
+            config.remotePort = static_cast<uint16_t>(node.text().as_uint(config.remotePort));
+        }
         if (auto node = settings.child("systemdelayms")) {
             config.systemDelayMs = node.text().as_double();
         }
@@ -93,6 +96,9 @@ void AmpServerConfig::saveToFile(const std::string& filename) const {
     settings.append_child("nativeformat").text().set(nativeFormat);
     settings.append_child("fastrecovery").text().set(fastRecovery);
     settings.append_child("physioaligndelayms").text().set(physioAlignDelayMs);
+    if (remotePort) {
+        settings.append_child("remoteport").text().set(remotePort);
+    }
     if (systemDelayMs) {
         settings.append_child("systemdelayms").text().set(*systemDelayMs);
     }

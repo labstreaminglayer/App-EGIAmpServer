@@ -53,7 +53,7 @@ private:
     socket_stream commandStream_;
     socket_stream notificationStream_;
     socket_stream dataStream_;
-    std::mutex commandMutex_;  // commands come from several threads (UI, impedance scan)
+    std::mutex commandMutex_;  // commands come from several threads (UI, impedance scan, remote control)
     std::atomic<bool> connected_{false};
     std::string serverAddress_;
     uint16_t dataPort_{0};

@@ -37,6 +37,7 @@ The CLI provides a lightweight alternative to the GUI:
 - `--fast-recovery` - Use native rate mode (no FPGA anti-alias filter) for lower latency. See [Sample Rate Modes](#sample-rate-modes).
 - `--impedance` - Enable impedance testing mode
 - `--native-format` - Transmit raw int32 ADC counts instead of float microvolts
+- `--remote-port <port>` - Serve [remote control](#remote-control) commands on 127.0.0.1:`<port>`; the CLI then keeps running until Ctrl+C, even when unlinked or if the initial link fails
 - `--shutdown` - Shutdown the Amp Server (terminates all connections)
 - `--help` - Show help message
 
@@ -153,7 +154,7 @@ Differences from the NA400 that this app handles automatically:
 - **Front end**: the NA500's EEG reads full scale until its buffered reference is switched on, every `cmd_Stop` switches it off, and switch commands sent within ~20 ms of power-on are lost; the app waits briefly after power-on and enables the buffered reference before each `cmd_Start`.
 - **Physio16**: the NA500 never reports whether a Physio16 is attached, so the app always streams its 16 physio channels (PIB1-16) after the EEG. Physio gains persist on the amplifier, so the app sets them to 12, the power-on default, before each start; the physio is then scaled like the EEG (±375 mV range) and needs no realignment delay.
 - **Triggers**: the app enables the NA500's DB9 digital inputs (without that they read as all 16 active) and its BNC input. Each rising edge on BNC in appears in the `_DIN` stream as bit 16 (value `0x10000`) for 1 ms, alongside the 16 DB9 bits. The EEG trails a BNC-in event by about 1.5 samples (the ADC filter's delay); no correction is applied, as in Net Station.
-- **BNC output trigger**: the GUI's *BNC Trigger* button (enabled while linked to an NA500) sends a 1 ms TTL pulse (0 to 5 V) on the BNC output; `EGIAmpClient::triggerBncOut()` takes widths of 100-1600 µs. The amplifier makes each pulse about 6.7% longer than set (a 1 ms setting measures 1.07 ms); the app sends the width as is, as Net Station does. Cable BNC out to BNC in to see each pulse in the `_DIN` stream. The mock (`--amp-type NA500`) loops its BNC output back to its BNC input.
+- **BNC output trigger**: the GUI's *BNC Trigger* button (enabled while linked to an NA500) and the remote control `trigger` command send a TTL pulse (0 to 5 V) on the BNC output: 1 ms by default, or 100-1600 µs via `trigger <width_us>`. The amplifier makes each pulse about 6.7% longer than set (a 1 ms setting measures 1.07 ms); the app sends the width as is, as Net Station does. Cable BNC out to BNC in to see each pulse in the `_DIN` stream. The mock (`--amp-type NA500`) loops its BNC output back to its BNC input.
 - **Clock**: the NA500 stamps packets with its own clock, which is not synchronized; the app sets it with `cmd_SetAmpTime` at power-on, as Net Station does.
 - **Single client**: while Net Station (or any other client) is linked to the NA500, this app's connections are accepted but not serviced — and vice versa. Unlink Net Station before using this app; concurrent monitoring is not possible on the NA500 (unlike the NA400).
 - **Recovery**: the NA500 sends `ntn_AmpStarted` only in reply to `cmd_GetStartTime`, not when streaming starts, so external-restart recovery uses data-port polling instead.
@@ -365,6 +366,30 @@ if imp_sample:
 # EEG data continues normally (contains calibration signal during impedance mode)
 eeg_sample, timestamp = eeg_inlet.pull_sample()
 ```
+
+## Remote Control
+
+Both the CLI and the GUI can serve a remote control service that does everything the GUI does: change settings, load/save a configuration, link/unlink, toggle impedance mode, shut down the AmpServer, and fire the NA500's BNC output trigger. It is off by default. Enable it with `--remote-port <port>` (CLI) or `<remoteport>` in the `<settings>` section of the configuration file (CLI and GUI; read at startup). It listens on 127.0.0.1 only and has no authentication, so only programs on the same computer can use it. One client is served at a time.
+
+The protocol is line based: send one command per line, read one reply line, `OK[ ...]` or `ERROR <message>`. Commands block until done (`link` can take 15+ s on a cold NA500). In the GUI, remote commands drive the window, so it always shows the current state.
+
+| Command | Effect |
+|---------|--------|
+| `status` | `OK linked=0/1 impedance=0/1 address=... command_port=... notification_port=... data_port=... sample_rate=... fast_recovery=0/1`, plus `amplifier=... serial=... net=...` while linked |
+| `set <key> <value>` | Change a setting while unlinked: `address`, `command_port`, `notification_port`, `data_port`, `sample_rate`, `fast_recovery` (0/1). In the CLI, a rate set this way is forced as with `--sample-rate`; the GUI attaches to a running amplifier as is. |
+| `load <file>` / `save <file>` | Load (while unlinked) or save a configuration file |
+| `link` / `unlink` | Start / stop streaming |
+| `impedance on` / `impedance off` | Impedance mode, while linked |
+| `trigger [width_us]` | NA500 only, while linked: one TTL pulse on the BNC output, 100-1600 µs (default 1000) |
+| `shutdown_ampserver` | Terminate the AmpServer process, while unlinked (no confirmation) |
+| `help` | List the commands |
+
+```bash
+./EGIAmpServerCLI --address NA500-256ch-0001.local --remote-port 9890 &
+printf 'status\ntrigger\n' | nc 127.0.0.1 9890
+```
+
+`scripts/remote_control_test.py` exercises the service end to end (with `MockAmpServer --amp-type NA500`, which loops BNC out back to BNC in).
 
 ## Digital Inputs (DIN)
 

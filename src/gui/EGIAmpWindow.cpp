@@ -9,6 +9,9 @@
 #include <QSpinBox>
 #include <QVariantList>
 
+#include <chrono>
+#include <future>
+
 namespace {
 /// Derive amplifier ID from the server address: .52 → 1, everything else → 0.
 int amplifierIdFromAddress(const std::string& address) {
@@ -89,9 +92,23 @@ EGIAmpWindow::EGIAmpWindow(QWidget* parent, const std::string& configFile)
     client_->setSensorCallback([this](egiamp::NetCode code) {
         emit sensorLayoutUpdated(QString::fromUtf8(egiamp::netCodeName(code)));
     });
+
+    if (baseConfig_.remotePort) {
+        try {
+            remote_ = std::make_unique<egiamp::RemoteControlServer>(*this, baseConfig_.remotePort);
+            ui->statusBox->appendPlainText(
+                QString("Remote control on 127.0.0.1:%1").arg(baseConfig_.remotePort));
+        } catch (const std::exception& e) {
+            ui->statusBox->appendPlainText(
+                QString("Cannot serve remote control on port %1: %2")
+                    .arg(baseConfig_.remotePort).arg(e.what()));
+        }
+    }
 }
 
 EGIAmpWindow::~EGIAmpWindow() {
+    closing_ = true;  // lets a remote command waiting on the UI thread give up
+    remote_.reset();
     joinLinkThread();
     if (client_->isStreaming()) {
         client_->stopStreaming();
@@ -120,17 +137,21 @@ void EGIAmpWindow::saveConfigDialog() {
 
 void EGIAmpWindow::loadConfig(const std::string& filename) {
     try {
-        auto config = egiamp::AmpServerConfig::loadFromFile(filename);
-        ui->serverAddress->setText(QString::fromStdString(config.serverAddress));
-        ui->commandPort->setValue(config.commandPort);
-        ui->notificationPort->setValue(config.notificationPort);
-        ui->dataPort->setValue(config.dataPort);
-        ui->sampleRateComboBox->setCurrentIndex(
-            findSampleRateIndex(config.sampleRate, config.fastRecovery));
+        applyConfig(egiamp::AmpServerConfig::loadFromFile(filename));
     } catch (const egiamp::ConfigError& e) {
         QMessageBox::information(this, "Error",
             QString("Cannot read config file: %1").arg(e.what()), QMessageBox::Ok);
     }
+}
+
+void EGIAmpWindow::applyConfig(const egiamp::AmpServerConfig& config) {
+    baseConfig_ = config;
+    ui->serverAddress->setText(QString::fromStdString(config.serverAddress));
+    ui->commandPort->setValue(config.commandPort);
+    ui->notificationPort->setValue(config.notificationPort);
+    ui->dataPort->setValue(config.dataPort);
+    ui->sampleRateComboBox->setCurrentIndex(
+        findSampleRateIndex(config.sampleRate, config.fastRecovery));
 }
 
 void EGIAmpWindow::saveConfig(const std::string& filename) {
@@ -144,7 +165,10 @@ void EGIAmpWindow::saveConfig(const std::string& filename) {
 }
 
 egiamp::AmpServerConfig EGIAmpWindow::getConfigFromUI() const {
-    egiamp::AmpServerConfig config;
+    egiamp::AmpServerConfig config = baseConfig_;
+    // The GUI attaches to a running amp as-is and measures impedance on demand.
+    config.forceSampleRate = false;
+    config.impedance = false;
     config.serverAddress = ui->serverAddress->text().toStdString();
     config.commandPort = static_cast<uint16_t>(ui->commandPort->value());
     config.notificationPort = static_cast<uint16_t>(ui->notificationPort->value());
@@ -194,41 +218,42 @@ void EGIAmpWindow::linkAmpserver() {
         // unresponsive. All UI updates flow back through queued signals.
         joinLinkThread();
         linkThread_ = std::make_unique<std::thread>([this]() {
-            emit appendStatusMessage("Connecting to AmpServer...");
-            if (!client_->connect()) {
-                emit linkFinished(false,
-                    "Could not connect to AmpServer. Please check network settings "
-                    "and ensure AmpServer is running.");
-                return;
-            }
-
-            // Query amplifier state to detect if it's already running
-            emit appendStatusMessage("Querying amplifier state...");
-            client_->queryAmpState();
-            if (client_->ampWasRunning()) {
-                int detectedRate = client_->detectedSampleRate();
-                if (detectedRate > 0) {
-                    emit appendStatusMessage(
-                        QString("Amplifier already running at %1 Hz").arg(detectedRate));
-                } else {
-                    emit appendStatusMessage(
-                        "Amplifier already running (sample rate detection failed, "
-                        "using configured rate)");
-                }
-                emit ampDetectedRunning(detectedRate);
-                emit sensorLayoutUpdated(
-                    QString::fromUtf8(egiamp::netCodeName(client_->detectedNetCode())));
-            }
-
-            if (!client_->startStreaming()) {
-                client_->disconnect();
-                emit linkFinished(false, "Failed to start streaming");
-                return;
-            }
-
-            emit linkFinished(true, QString());
+            const QString err = runLink();
+            emit linkFinished(err.isEmpty(), err);
         });
     }
+}
+
+QString EGIAmpWindow::runLink() {
+    emit appendStatusMessage("Connecting to AmpServer...");
+    if (!client_->connect()) {
+        return "Could not connect to AmpServer. Please check network settings "
+               "and ensure AmpServer is running.";
+    }
+
+    // Query amplifier state to detect if it's already running
+    emit appendStatusMessage("Querying amplifier state...");
+    client_->queryAmpState();
+    if (client_->ampWasRunning()) {
+        int detectedRate = client_->detectedSampleRate();
+        if (detectedRate > 0) {
+            emit appendStatusMessage(
+                QString("Amplifier already running at %1 Hz").arg(detectedRate));
+        } else {
+            emit appendStatusMessage(
+                "Amplifier already running (sample rate detection failed, "
+                "using configured rate)");
+        }
+        emit ampDetectedRunning(detectedRate);
+        emit sensorLayoutUpdated(
+            QString::fromUtf8(egiamp::netCodeName(client_->detectedNetCode())));
+    }
+
+    if (!client_->startStreaming()) {
+        client_->disconnect();
+        return "Failed to start streaming";
+    }
+    return QString();
 }
 
 void EGIAmpWindow::onLinkFinished(bool ok, QString errorMessage) {
@@ -415,4 +440,58 @@ void EGIAmpWindow::triggerBncOut() {
     if (client_->triggerBncOut(egiamp::EGIAmpClient::BNC_OUT_DEFAULT_PULSE_US)) {
         emit appendStatusMessage("BNC trigger sent.");
     }
+}
+
+// Runs f on the UI thread and returns its result; called from the remote
+// control thread. Gives up (throws) once the window starts closing, so the
+// destructor can join the remote control thread without deadlocking.
+template <typename F>
+auto EGIAmpWindow::onUiThread(F f) {
+    auto done = std::make_shared<std::promise<decltype(f())>>();
+    auto result = done->get_future();
+    // `this` as context: Qt drops the call if the window is destroyed first.
+    QMetaObject::invokeMethod(this, [done, f]() mutable { done->set_value(f()); },
+                              Qt::QueuedConnection);
+    while (result.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
+        if (closing_) throw std::runtime_error("the application is closing");
+    }
+    return result.get();
+}
+
+egiamp::AmpServerConfig EGIAmpWindow::config() {
+    return onUiThread([this] { return getConfigFromUI(); });
+}
+
+void EGIAmpWindow::setConfig(const egiamp::AmpServerConfig& config) {
+    onUiThread([this, &config] { applyConfig(config); return true; });
+}
+
+std::string EGIAmpWindow::link() {
+    const bool started = onUiThread([this] {
+        if (!ui->linkButton->isEnabled() || client_->isStreaming()) return false;
+        ui->linkButton->setEnabled(false);
+        client_->setConfig(getConfigFromUI());
+        return true;
+    });
+    if (!started) return "busy (already linking)";
+    const QString err = runLink();
+    emit linkFinished(err.isEmpty(), err);  // updates the window, like a button-started link
+    return err.toStdString();
+}
+
+std::string EGIAmpWindow::unlink() {
+    return onUiThread([this]() -> std::string {
+        if (!ui->linkButton->isEnabled()) return "busy (linking)";
+        if (!client_->isStreaming()) return "not linked";
+        linkAmpserver();
+        return "";
+    });
+}
+
+std::string EGIAmpWindow::setImpedance(bool on) {
+    return onUiThread([this, on]() -> std::string {
+        if (!ui->impedanceCheckBox->isEnabled()) return "not linked";
+        ui->impedanceCheckBox->setChecked(on);  // runs toggleImpedanceMode (unchecks on failure)
+        return client_->isImpedanceModeActive() == on ? "" : "impedance mode change failed";
+    });
 }

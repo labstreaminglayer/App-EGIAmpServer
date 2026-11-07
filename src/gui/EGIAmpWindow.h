@@ -2,9 +2,11 @@
 #define EGIAMPWINDOW_H
 
 #include <egiamp/EGIAmpClient.h>
+#include <egiamp/RemoteControl.h>
 
 #include <QCloseEvent>
 #include <QMainWindow>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <thread>
@@ -13,13 +15,22 @@ namespace Ui {
 class EGIAmpWindow;
 }
 
-class EGIAmpWindow : public QMainWindow {
+class EGIAmpWindow : public QMainWindow, public egiamp::RemoteControlTarget {
     Q_OBJECT
 
 public:
     explicit EGIAmpWindow(QWidget* parent, const std::string& configFile);
     EGIAmpWindow(const EGIAmpWindow&) = delete;
     ~EGIAmpWindow() override;
+
+    // Remote control (called on the remote control thread; they run their UI
+    // work on the UI thread so the window always shows the current state).
+    egiamp::EGIAmpClient& client() override { return *client_; }
+    egiamp::AmpServerConfig config() override;
+    void setConfig(const egiamp::AmpServerConfig& config) override;
+    std::string link() override;
+    std::string unlink() override;
+    std::string setImpedance(bool on) override;
 
 private slots:
     void loadConfigDialog();
@@ -52,6 +63,9 @@ protected:
 
 private:
     void loadConfig(const std::string& filename);
+    void applyConfig(const egiamp::AmpServerConfig& config);
+    QString runLink();  // connect/query/start; returns the error, empty on success
+    template <typename F> auto onUiThread(F f);
     void saveConfig(const std::string& filename);
     void updateUIFromConfig();
     egiamp::AmpServerConfig getConfigFromUI() const;
@@ -67,6 +81,10 @@ private:
     // start legitimately takes 15+ s (power-on wait), and a hung AmpServer
     // must never freeze the UI. Progress arrives via queued signals.
     std::unique_ptr<std::thread> linkThread_;
+    // Settings the window has no field for, kept from the loaded config.
+    egiamp::AmpServerConfig baseConfig_;
+    std::atomic<bool> closing_{false};
+    std::unique_ptr<egiamp::RemoteControlServer> remote_;
 };
 
 #endif // EGIAMPWINDOW_H
