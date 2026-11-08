@@ -83,7 +83,9 @@ data on 9879). Only the differences that matter to a client are listed.
   the first reserved byte: one sample at 1000 Hz, four at 4000 Hz, whatever the pulse length. Mode 0 is
   off. The mode is reset when the session ends.
 - **BNC out**: `cmd_SetBncOutMode 1` (manual) makes `cmd_SetTriggerBncManualOut` fire one pulse of the
-  width set by `cmd_SetBncOutPulseWidth <µs>`.
+  width set by `cmd_SetBncOutPulseWidth <µs>`. Measured with a 100 kHz DAQ: a 0 to 5.0 V pulse, rising in
+  under 10 µs, about 6.7% (16/15) longer than set: 100 µs gives 108, 1000 µs gives 1069, 1500 µs gives
+  1600, 1600 µs gives 1706.
 - Bits 0 and 1 of the same byte (photocell and audio inputs) read 1 with nothing connected.
 - A BNC pulse fed to the EEG inputs starts moving the EEG on the same sample as the BNC-in event and
   reaches half amplitude about 1.5 samples later (the ADC filter's delay), at 1000 and 4000 Hz.
