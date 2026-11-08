@@ -7,7 +7,7 @@ endif()
 
 # Keep the fallback current when tagging releases: source archives have no .git.
 include(cmake/ProjectVersion.cmake)
-egiamp_version_from_git(EGIAMP_VERSION EGIAMP_VERSION_FULL FALLBACK "3.0.0")
+egiamp_version_from_git(EGIAMP_VERSION EGIAMP_VERSION_FULL FALLBACK "3.1.0")
 
 project(EGIAmpServer
     VERSION ${EGIAMP_VERSION}
