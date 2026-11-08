@@ -58,6 +58,13 @@ public:
     void stopImpedanceMode();
     bool isImpedanceModeActive() const;
 
+    // NA500 only: fire one TTL pulse of the given width on the BNC output.
+    // Needs a running stream. Net Station offers 100-1600 us.
+    static constexpr int BNC_OUT_MIN_PULSE_US = 100;
+    static constexpr int BNC_OUT_MAX_PULSE_US = 1600;
+    static constexpr int BNC_OUT_DEFAULT_PULSE_US = 1000;
+    bool triggerBncOut(int widthUs);
+
     // Shutdown the Amp Server process (cmd_Exit)
     // Warning: This terminates the Amp Server and will disconnect all clients
     bool shutdownAmpServer();
@@ -147,6 +154,9 @@ private:
     uint64_t lastPacketCounterWithTimeStamp_ = 0;
     uint16_t lastDINValue_ = 0xFFFF;  // DINs are active-low; 0xFFFF = idle
     bool lastBncIn_ = false;          // NA500 BNC input, reported as DIN bit 16
+    // BNC output pulse width last sent on this connection; 0 = output not yet
+    // put in manual mode on this connection.
+    int bncOutWidthUs_ = 0;
 
     StatusCallback statusCallback_;
     ErrorCallback errorCallback_;

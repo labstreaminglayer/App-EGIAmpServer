@@ -172,6 +172,7 @@ void NA500Server::session(const std::atomic<bool>& running) {
     // input configuration does not.
     streaming_ = false;
     bncInEvents_ = false;
+    bncOutManual_ = false;
     comRefMode_ = false;
     bufferedReference_ = false;
     amp_->setPower(false);
@@ -280,6 +281,21 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
         bncInEvents_ = value == 1;
         return {OK};
     }
+    if (name == "cmd_SetBncOutMode") {
+        bncOutManual_ = value == 1;
+        return {OK};
+    }
+    if (name == "cmd_SetBncOutPulseWidth") {
+        bncOutWidthUs_ = value;
+        return {OK};
+    }
+    if (name == "cmd_SetTriggerBncManualOut") {
+        if (bncOutManual_) {
+            ++bncOutPulses_;
+            std::cout << "[NA500] BNC out pulse, " << bncOutWidthUs_ << " us" << std::endl;
+        }
+        return {OK};
+    }
     if (name == "cmd_SetDinEnable") {
         dinEnabled_ = true;  // the device ignores the value
         return {OK};
@@ -367,9 +383,11 @@ void NA500Server::streamLoop() {
                 std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
             }
             // BNC in (event mode) reports a 1 ms event at each rising edge; the mock
-            // drives it from the test-jig pulse that also pulls DIN 1 low.
+            // drives it from the test-jig pulse that also pulls DIN 1 low, and from
+            // BNC out pulses (looped back).
             const uint16_t din = packet.digitalInputs;
-            if (bncInEvents_ && (prevDin & 1) && !(din & 1)) {
+            const bool bncOutPulse = bncOutPulses_.exchange(0) > 0;
+            if (bncInEvents_ && (((prevDin & 1) && !(din & 1)) || bncOutPulse)) {
                 bncSamplesLeft = rate >= 1000 ? rate / 1000 : 1;
             }
             prevDin = din;

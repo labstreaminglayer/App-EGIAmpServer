@@ -55,6 +55,12 @@ private:
     std::atomic<bool> streaming_{false};
     std::atomic<bool> dinEnabled_{false};
     std::atomic<bool> bncInEvents_{false};  // cmd_SetBncInMode 1; reset when the session ends
+    // BNC out: cmd_SetBncOutMode 1 (manual) arms cmd_SetTriggerBncManualOut;
+    // reset when the session ends, like the BNC input. Each pulse is looped back to the BNC input,
+    // as if a cable joined the two, so it shows up in the data stream.
+    std::atomic<bool> bncOutManual_{false};
+    std::atomic<int> bncOutPulses_{0};
+    long long bncOutWidthUs_ = 0;
     std::atomic<bool> comRefMode_{false};  // cmd_SetCOMAndRefForMeasurement 1: EEG reads 0
     // The signal generator latches amplitude and frequency when switched on.
     bool oscillatorOn_ = false;
