@@ -223,7 +223,8 @@ jobs:
 
           rm -f *.tar.gz
 
-          VERSION=$(sed -n '/project(EGIAmpServer/,/)/s/.*VERSION \([0-9.]*\).*/\1/p' ../CMakeLists.txt)
+          # The version is no longer a literal in CMakeLists.txt; this job only runs on releases.
+          VERSION="${GITHUB_REF_NAME#v}"
           echo "Detected version: $VERSION"
 
           tar -cvzf "EGIAmpServer-${VERSION}-macOS_universal-signed.tar.gz" \
