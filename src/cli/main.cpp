@@ -1,10 +1,12 @@
 #include <egiamp/AmpServerConfig.h>
 #include <egiamp/EGIAmpClient.h>
+#include <egiamp/RemoteControl.h>
 
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 
 namespace {
@@ -22,6 +24,41 @@ void signalHandler(int signal) {
     }
 }
 
+// Remote control for the CLI: drives the client directly.
+class CliRemoteTarget : public egiamp::RemoteControlTarget {
+public:
+    explicit CliRemoteTarget(egiamp::EGIAmpClient& client) : client_(client) {}
+    egiamp::EGIAmpClient& client() override { return client_; }
+    egiamp::AmpServerConfig config() override { return client_.config(); }
+    void setConfig(const egiamp::AmpServerConfig& config) override { client_.setConfig(config); }
+    std::string link() override {
+        if (!client_.connect()) {
+            return "Failed to connect to AmpServer at " + client_.config().serverAddress;
+        }
+        std::cout << "Connected to AmpServer.\n";
+        if (!client_.startStreaming()) {
+            client_.disconnect();
+            return "Failed to start streaming";
+        }
+        return "";
+    }
+    std::string unlink() override {
+        client_.stopStreaming();
+        client_.disconnect();
+        return "";
+    }
+    std::string setImpedance(bool on) override {
+        if (!on) {
+            client_.stopImpedanceMode();
+            return "";
+        }
+        return client_.startImpedanceMode() ? "" : "Failed to start impedance mode";
+    }
+
+private:
+    egiamp::EGIAmpClient& client_;
+};
+
 void printUsage(const char* programName) {
     std::cerr << "Usage: " << programName << " [options]\n"
               << "Options:\n"
@@ -34,6 +71,8 @@ void printUsage(const char* programName) {
               << "  --fast-recovery    Use native rate for lower latency (no FPGA anti-alias filter)\n"
               << "  --impedance        Enable impedance testing mode (default: disabled)\n"
               << "  --native-format    Transmit raw int32 ADC counts instead of float microvolts\n"
+              << "  --remote-port <p>  Serve remote control commands on 127.0.0.1:<p> and keep\n"
+              << "                     running until Ctrl+C, even when unlinked\n"
               << "  --shutdown         Shutdown the Amp Server (terminates all connections)\n"
               << "  --help             Show this help message\n";
 }
@@ -42,6 +81,7 @@ int main(int argc, char* argv[]) {
     egiamp::AmpServerConfig config;
     std::string configFile;
     bool shutdownMode = false;
+    int remotePort = 0;
 
     // Parse command-line arguments
     for (int i = 1; i < argc; i++) {
@@ -70,6 +110,12 @@ int main(int argc, char* argv[]) {
             config.impedance = true;
         } else if (arg == "--native-format") {
             config.nativeFormat = true;
+        } else if (arg == "--remote-port" && i + 1 < argc) {
+            remotePort = std::stoi(argv[++i]);
+            if (remotePort < 1 || remotePort > 65535) {
+                std::cerr << "Invalid --remote-port: " << remotePort << std::endl;
+                return 1;
+            }
         } else if (arg == "--shutdown") {
             shutdownMode = true;
         } else {
@@ -152,26 +198,34 @@ int main(int argc, char* argv[]) {
               << "  Data Format: " << (config.nativeFormat ? "native (int32 counts)" : "microvolts (float32)") << "\n"
               << "Press Ctrl+C to stop.\n\n";
 
-    // Connect and stream
-    if (!client.connect()) {
-        std::cerr << "Failed to connect to AmpServer at "
-                  << config.serverAddress << std::endl;
-        return 1;
+    if (remotePort == 0) remotePort = config.remotePort;
+    CliRemoteTarget target(client);
+    std::unique_ptr<egiamp::RemoteControlServer> remote;
+    if (remotePort) {
+        try {
+            remote = std::make_unique<egiamp::RemoteControlServer>(
+                target, static_cast<uint16_t>(remotePort));
+        } catch (const std::exception& e) {
+            std::cerr << "Cannot serve remote control on port " << remotePort << ": "
+                      << e.what() << std::endl;
+            return 1;
+        }
+        std::cout << "Remote control on 127.0.0.1:" << remotePort << "\n";
     }
 
-    std::cout << "Connected to AmpServer.\n";
-
-    if (!client.startStreaming()) {
-        std::cerr << "Failed to start streaming" << std::endl;
-        client.disconnect();
-        return 1;
+    // Connect and stream. With remote control, a failed link is not fatal:
+    // the remote side can fix the settings and link again.
+    if (const std::string err = target.link(); !err.empty()) {
+        std::cerr << err << std::endl;
+        if (!remote) return 1;
     }
 
     // Wait for shutdown signal
-    while (g_running && client.isStreaming()) {
+    while (g_running && (remote || client.isStreaming())) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
+    remote.reset();
     client.stopStreaming();
     client.disconnect();
 

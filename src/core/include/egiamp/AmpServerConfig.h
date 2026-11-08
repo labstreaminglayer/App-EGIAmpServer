@@ -37,6 +37,7 @@ struct AmpServerConfig {
     std::optional<double> systemDelayMs;
     bool impedance = false;
     bool nativeFormat = false;  // When true, transmit raw int32 ADC counts instead of float microvolts
+    uint16_t remotePort = 0;    // Remote control service on 127.0.0.1:<port>; 0 = off. Read at startup.
 
     /// Derive LSL stream name from the server address.
     /// .51 → "EGINetAmp_51", .52 → "EGINetAmp_52", localhost/127.* → "EGINetAmp_mock".
