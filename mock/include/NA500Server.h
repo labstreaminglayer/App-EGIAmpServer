@@ -54,7 +54,7 @@ private:
     std::atomic<bool> stopping_{false};
     std::atomic<bool> streaming_{false};
     std::atomic<bool> dinEnabled_{false};
-    std::atomic<bool> bncInEvents_{false};  // cmd_SetBncInMode 1; reset when the session ends
+    std::atomic<bool> bncInEvents_{false};  // cmd_SetBncInMode 1 or 2; reset when the session ends
     // BNC out: cmd_SetBncOutMode 1 (manual) arms cmd_SetTriggerBncManualOut;
     // reset when the session ends, like the BNC input. Each pulse is looped back to the BNC input,
     // as if a cable joined the two, so it shows up in the data stream.

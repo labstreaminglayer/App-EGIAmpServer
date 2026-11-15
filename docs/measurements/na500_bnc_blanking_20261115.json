@@ -1,0 +1,202 @@
+[
+  {
+    "amplifier_details": "(sendCommand_return (status complete) (amp_details (serial_number 0001) (amp_type NA500) (legacy_board false) (packet_format 2) (system_version 0.4.9) (fpga_version 0.6.1.f0) (pcb_version 4.1.0.0) (number_of_channels 256) (feature_flags 0))",
+    "complete": true,
+    "capture_errors": [],
+    "sample_count": 196456,
+    "bytes": 248320384,
+    "requested_rate_hz": 4000,
+    "blocks": [
+      {
+        "block": 1,
+        "mode": 1,
+        "sent": 20,
+        "events": 20,
+        "samples": 44272,
+        "usable_epochs": 20,
+        "gate_normalized_increment": 1.0341614906832297,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      },
+      {
+        "block": 2,
+        "mode": 2,
+        "sent": 20,
+        "events": 20,
+        "samples": 44216,
+        "usable_epochs": 20,
+        "gate_normalized_increment": 265.86692176870747,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      },
+      {
+        "block": 3,
+        "mode": 2,
+        "sent": 20,
+        "events": 20,
+        "samples": 44248,
+        "usable_epochs": 20,
+        "gate_normalized_increment": 269.9619584675976,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      },
+      {
+        "block": 4,
+        "mode": 1,
+        "sent": 20,
+        "events": 20,
+        "samples": 44216,
+        "usable_epochs": 20,
+        "gate_normalized_increment": 0.9853896103896103,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      }
+    ],
+    "usable_epochs": 80,
+    "useful_channels": 256,
+    "plotted_channel": 231,
+    "overall_epoch_rail_fraction": 0.0,
+    "modes": {
+      "1": {
+        "events": 40,
+        "median_baseline_abs_increment_counts": 22.0,
+        "gate_0_5_to_2ms_normalized_increment_median": 1.0,
+        "gate_0_5_to_2ms_normalized_increment_q25_q75": [
+          0.9143668831168831,
+          1.1358901515151516
+        ],
+        "gate_exact_repeat_fraction": 0.013671875,
+        "baseline_exact_repeat_fraction": 0.013568239795918367
+      },
+      "2": {
+        "events": 40,
+        "median_baseline_abs_increment_counts": 21.0,
+        "gate_0_5_to_2ms_normalized_increment_median": 265.86692176870747,
+        "gate_0_5_to_2ms_normalized_increment_q25_q75": [
+          171.7729591836735,
+          305.0119047619048
+        ],
+        "gate_exact_repeat_fraction": 0.0001255580357142857,
+        "baseline_exact_repeat_fraction": 0.014198022959183673
+      }
+    },
+    "absolute_response": {
+      "1": {
+        "peak_of_median_absolute_eeg_uv": 0.9748096368750749,
+        "peak_time_ms": 5.75,
+        "median_abs_baseline_uv": 0.8516469780279666,
+        "last_time_median_response_exceeds_5uv_ms": null
+      },
+      "2": {
+        "peak_of_median_absolute_eeg_uv": 988.5304132286383,
+        "peak_time_ms": 0.5,
+        "median_abs_baseline_uv": 0.8240494192862995,
+        "last_time_median_response_exceeds_5uv_ms": 2.0
+      }
+    }
+  },
+  {
+    "amplifier_details": "(sendCommand_return (status complete) (amp_details (serial_number 0001) (amp_type NA500) (legacy_board false) (packet_format 2) (system_version 0.4.9) (fpga_version 0.6.1.f0) (pcb_version 4.1.0.0) (number_of_channels 256) (feature_flags 0))",
+    "complete": true,
+    "capture_errors": [],
+    "sample_count": 115992,
+    "bytes": 146613888,
+    "requested_rate_hz": 4000,
+    "blocks": [
+      {
+        "block": 1,
+        "mode": 1,
+        "sent": 10,
+        "events": 10,
+        "samples": 24144,
+        "usable_epochs": 10,
+        "gate_normalized_increment": 1.0050112930547714,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      },
+      {
+        "block": 2,
+        "mode": 2,
+        "sent": 10,
+        "events": 10,
+        "samples": 24136,
+        "usable_epochs": 10,
+        "gate_normalized_increment": 226.27023809523808,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      },
+      {
+        "block": 3,
+        "mode": 2,
+        "sent": 10,
+        "events": 10,
+        "samples": 24072,
+        "usable_epochs": 10,
+        "gate_normalized_increment": 267.8337585034013,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      },
+      {
+        "block": 4,
+        "mode": 1,
+        "sent": 10,
+        "events": 10,
+        "samples": 24144,
+        "usable_epochs": 10,
+        "gate_normalized_increment": 1.0616883116883118,
+        "counter_discontinuities": 0,
+        "median_timestamp_step_us": 250.0,
+        "timestamp_discontinuities": 0
+      }
+    ],
+    "usable_epochs": 40,
+    "useful_channels": 256,
+    "plotted_channel": 231,
+    "overall_epoch_rail_fraction": 0.0,
+    "modes": {
+      "1": {
+        "events": 20,
+        "median_baseline_abs_increment_counts": 22.0,
+        "gate_0_5_to_2ms_normalized_increment_median": 1.0553359683794468,
+        "gate_0_5_to_2ms_normalized_increment_q25_q75": [
+          0.9318181818181819,
+          1.1002628324056896
+        ],
+        "gate_exact_repeat_fraction": 0.012388392857142856,
+        "baseline_exact_repeat_fraction": 0.01329719387755102
+      },
+      "2": {
+        "events": 20,
+        "median_baseline_abs_increment_counts": 20.5,
+        "gate_0_5_to_2ms_normalized_increment_median": 236.04183673469387,
+        "gate_0_5_to_2ms_normalized_increment_q25_q75": [
+          189.994489063568,
+          304.6768707482993
+        ],
+        "gate_exact_repeat_fraction": 0.0017578125,
+        "baseline_exact_repeat_fraction": 0.014182079081632652
+      }
+    },
+    "absolute_response": {
+      "1": {
+        "peak_of_median_absolute_eeg_uv": 1.0938668737606123,
+        "peak_time_ms": 1.5,
+        "median_abs_baseline_uv": 0.8641913229105427,
+        "last_time_median_response_exceeds_5uv_ms": null
+      },
+      "2": {
+        "peak_of_median_absolute_eeg_uv": 1048.3299895208709,
+        "peak_time_ms": 0.5,
+        "median_abs_baseline_uv": 0.8188036023354046,
+        "last_time_median_response_exceeds_5uv_ms": 2.75
+      }
+    }
+  }
+]
