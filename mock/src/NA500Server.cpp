@@ -278,7 +278,7 @@ std::vector<std::string> NA500Server::execute(const std::string& name, long long
         return {OK};
     }
     if (name == "cmd_SetBncInMode") {
-        bncInEvents_ = value == 1;
+        bncInEvents_ = value == 1 || value == 2;
         return {OK};
     }
     if (name == "cmd_SetBncOutMode") {
@@ -382,9 +382,9 @@ void NA500Server::streamLoop() {
                 // drive is on (the NA500 impedance state runs with it off).
                 std::fill(std::begin(packet.eegData), std::end(packet.eegData), -8388608);
             }
-            // BNC in (event mode) reports a 1 ms event at each rising edge; the mock
-            // drives it from the test-jig pulse that also pulls DIN 1 low, and from
-            // BNC out pulses (looped back).
+            // BNC in (event or TMS blanking mode) reports a 1 ms event at each
+            // rising edge; the mock drives it from the test-jig pulse that also
+            // pulls DIN 1 low, and from BNC out pulses (looped back).
             const uint16_t din = packet.digitalInputs;
             const bool bncOutPulse = bncOutPulses_.exchange(0) > 0;
             if (bncInEvents_ && (((prevDin & 1) && !(din & 1)) || bncOutPulse)) {

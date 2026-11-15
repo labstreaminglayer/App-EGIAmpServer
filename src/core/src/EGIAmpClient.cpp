@@ -534,14 +534,32 @@ void EGIAmpClient::enableNA500FrontEnd() {
         connection_.sendCommand("cmd_SetBufferedReference", config_.amplifierId, 0, "1");
         // Without this the DB9 inputs read 0, i.e. all 16 active (they are active-low).
         connection_.sendCommand("cmd_SetDinEnable", config_.amplifierId, 0, "1");
-        // BNC in: report each rising edge (as DIN bit 16).
-        connection_.sendCommand("cmd_SetBncInMode", config_.amplifierId, 0, "1");
+        configureNA500BncInput();
         // Physio gains persist on the amp across sessions; pin them to 12, the
         // power-on default, which the physio scaling assumes (same as the EEG's).
         for (int ch = 0; ch < 16; ch++) {
             connection_.sendCommand("cmd_SetPIBChannelGain", config_.amplifierId, ch, "12");
         }
     }
+}
+
+void EGIAmpClient::configureNA500BncInput() {
+    if (details_.amplifierType != AmplifierType::NA500) return;
+
+    // The FPGA requires a width (100-1600 us) BEFORE mode 2 enables TMS
+    // blanking. It stays armed for subsequent pulses and still reports each
+    // rising edge as DIN bit 16. Apply on stream setup, including when joining
+    // an already-running amp, and again after reinitialization.
+    constexpr int blankingWidthUs = 1000;
+    if (!commandCompleted(connection_.sendCommand("cmd_SetBlankingPulseWidth",
+            config_.amplifierId, 0, std::to_string(blankingWidthUs)))) {
+        throw std::runtime_error("Failed to set BNC input blanking pulse width");
+    }
+    if (!commandCompleted(connection_.sendCommand("cmd_SetBncInMode",
+            config_.amplifierId, 0, "2"))) {
+        throw std::runtime_error("Failed to enable BNC input TMS blanking");
+    }
+    emitStatus("BNC input: TMS blanking enabled (1000 us), with input events.\n");
 }
 
 void EGIAmpClient::haltAmplifier() {
@@ -681,6 +699,7 @@ bool EGIAmpClient::startStreaming() {
         } else {
             emitStatus("Amplifier is already running, skipping initialization.\n");
             weInitializedAmp_ = false;
+            configureNA500BncInput();
 
             // Use detected sample rate if available
             if (detectedRate > 0) {

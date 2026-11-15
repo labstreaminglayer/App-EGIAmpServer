@@ -99,6 +99,7 @@ private:
     bool initAmplifier();
     void haltAmplifier();
     void enableNA500FrontEnd();  // no-op on other models
+    void configureNA500BncInput();  // width before mode; throws on rejection
 
     void readPacketFormat1();
     void readPacketFormat2();

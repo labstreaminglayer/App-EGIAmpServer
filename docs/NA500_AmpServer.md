@@ -139,3 +139,62 @@ lost if its command is sent the instant the notification port connects, before t
   buffered; the gap shows in the packet counter. Read the data port continuously.
 - With no net attached the net code is 255. Digital inputs read 0 until `cmd_SetDinEnable`, then idle at
   `0xFFFF` (active low). The first reserved byte read 3 at idle on the unit we measured.
+
+## BNC input blanking
+
+The FPGA needs `cmd_SetBlankingPulseWidth` (100–1600 µs) before
+`cmd_SetBncInMode` = 2 to enable TMS blanking. Modes 0, 1 and 3 disable it.
+Mode 2 remains armed between pulses and still produces BNC input events
+(bit 2 of the first reserved byte, exposed by the connector as DIN bit 16).
+The connector applies a fixed default of 1000 µs and mode 2 during stream setup,
+including when joining an already-running amplifier, and after reinitialization.
+
+### Hardware comparison, 2026-11-15
+
+Tested serial 0001 (firmware 0.4.9, FPGA 0.6.1.f0, PCB 4.1.0.0) with BNC OUT
+cabled to BNC IN, open EEG inputs, and no external signal source. Recorded all
+256 EEG channels at 4000 Hz native, without LSL processing. In each recording,
+the mode sequence was 1 → 2 → 2 → 1; output pulses stayed at a 1000 µs setting,
+spaced 0.5 seconds apart. The blanking width was sent before each mode change.
+
+| Blanking width | Mode 1 input events | Mode 2 input events |
+|---|---:|---:|
+| 1000 µs | 40/40 | 40/40 |
+| 1600 µs | 20/20 | 20/20 |
+
+All comparison blocks had contiguous packet counters and 250 µs timestamp
+increments. None of the 120 analyzed event windows showed EEG saturation.
+Mode 1 stayed near its roughly 1 µV background variation. Mode 2 produced a
+repeatable transient, with the median absolute EEG response across channels and
+events peaking around 1 mV at +0.5 ms. The later portion of the response moved
+later at 1600 µs, while the output pulse width stayed unchanged. The effect
+appeared in both mode-2 blocks and disappeared on return to mode 1.
+
+![Mode 1 versus mode 2 at two blanking widths](measurements/na500_bnc_blanking_20261115.png)
+
+These measurements demonstrate a width-dependent response in the EEG hardware
+path and preserved input events. The open-input waveform is a switching
+transient; this does not establish suppression of a known input signal or TMS
+artifact. Its duration must not be interpreted as the exact analog gate width.
+A driven-input test or direct gate measurement is still needed for those checks.
+
+The [measurement summary](measurements/na500_bnc_blanking_20261115.json) includes
+per-block event counts and continuity checks. To repeat the experiment, unlink
+other AmpServer clients and run from the repository root:
+
+```bash
+python scripts/bnc_blanking_capture.py --host 10.10.10.62 \
+    --out hardware_captures/bnc-1000us
+python scripts/bnc_blanking_analyze.py hardware_captures/bnc-1000us
+python scripts/bnc_blanking_capture.py --host 10.10.10.62 --width 1600 --pulses 10 \
+    --out hardware_captures/bnc-1600us
+python scripts/bnc_blanking_analyze.py hardware_captures/bnc-1600us
+```
+
+The capture utility saves complete raw PacketFormat2 payloads, command replies,
+notifications and block boundaries. Analysis saves event epochs, metrics and a
+plot; it needs NumPy and Matplotlib from `scripts/requirements.txt`. Acquisition
+is stopped and powered down after capture. The last test width and mode 2 are
+programmed before stopping; the connector reapplies its 1000 µs default on the
+next stream setup. Large local recordings under `hardware_captures/` are ignored
+by Git.
